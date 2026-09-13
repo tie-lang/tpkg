@@ -1,0 +1,78 @@
+type tie<tsh>
+// p925_demo.tsh.tie —— tpkg scaffold probe; tie/tsh port of probe/p925_demo.ps1
+// (p.9.2.5). Probes `tpkg new <project>` skeleton (src/ tie.pkg README .gitignore
+// LICENSE), name-parameterized manifest, tiec compiling the hello entry, and
+// rejection of existing-dir / invalid-name.
+// NOTE(tsh): no argv (config via env TPKG_PKG / TPKG_TIEC_D); no substring → 
+// manifests checked with findstr; conditional `exit <n>` impossible → success 0.
+var fails = 0
+var root = cwd()
+var pkg = root + "\\pkg.exe"
+var tdir = get_env("TPKG_TIEC_D")
+if tdir == "" { tdir = "F:\\Projects\\tie-repo\\tiec\\compiler" }
+var tmp = get_env("TEMP")
+var work = path_join(tmp, "tpkg_p925_" + to_string(time_now()))
+var _w = mkdir_all(work)
+println("== tpkg p.9.2.5 scaffold probe  (work=" + work + ") ==")
+var proj = path_join(work, "myproj")
+var projF = proj + "\\src\\main.tie"
+// ---------- 1) new myproj (no --git) generates skeleton ----------
+var r1 = exec_code("cd /d \"" + work + "\" && \"" + pkg + "\" new myproj >nul 2>&1")
+var ok1 = 0
+if r1 == 0 { ok1 = 1 }
+if ok1 == 1 { println("  [PASS] new myproj exits 0") } else { println("  [FAIL] new myproj exits 0") }
+if ok1 == 0 { fails = fails + 1 }
+var e_src = file_exists(projF)
+if e_src { println("  [PASS] src/main.tie generated") } else { println("  [FAIL] src/main.tie generated") }
+if !e_src { fails = fails + 1 }
+var e_mp = file_exists(proj + "\\tie.pkg")
+if e_mp { println("  [PASS] tie.pkg manifest generated") } else { println("  [FAIL] tie.pkg manifest generated") }
+if !e_mp { fails = fails + 1 }
+var e_rd = file_exists(proj + "\\README.md")
+if e_rd { println("  [PASS] README.md generated") } else { println("  [FAIL] README.md generated") }
+if !e_rd { fails = fails + 1 }
+var e_gi = file_exists(proj + "\\.gitignore")
+if e_gi { println("  [PASS] .gitignore generated") } else { println("  [FAIL] .gitignore generated") }
+if !e_gi { fails = fails + 1 }
+var e_lic = file_exists(proj + "\\LICENSE")
+if e_lic { println("  [PASS] LICENSE generated") } else { println("  [FAIL] LICENSE generated") }
+if !e_lic { fails = fails + 1 }
+var e_git = file_exists(proj + "\\.git")
+if !e_git { println("  [PASS] no git init without --git") } else { println("  [FAIL] no git init without --git") }
+if e_git { fails = fails + 1 }
+var c_name = exec_code("findstr /C:\"myproj\" \"" + proj + "\\tie.pkg\" >nul")
+var okn = 0
+if c_name == 0 { okn = 1 }
+if okn == 1 { println("  [PASS] manifest name parameterized -> myproj") } else { println("  [FAIL] manifest name parameterized -> myproj") }
+if okn == 0 { fails = fails + 1 }
+var c_main = exec_code("findstr /C:\"src/main.tie\" \"" + proj + "\\tie.pkg\" >nul")
+var okm = 0
+if c_main == 0 { okm = 1 }
+if okm == 1 { println("  [PASS] manifest main -> src/main.tie") } else { println("  [FAIL] manifest main -> src/main.tie") }
+if okm == 0 { fails = fails + 1 }
+// ---------- 2) compile the generated hello with tiec and run it ----------
+var rc_tiec = exec_code("cd /d \"" + proj + "\" && \"" + tdir + "\\tiec.exe\" \"src/main.tie\" -o \"hello.exe\" --no-cache >nul 2>&1")
+var okt = 0
+if rc_tiec == 0 { okt = 1 }
+if okt == 1 { println("  [PASS] tiec compiles scaffold hello") } else { println("  [FAIL] tiec compiles scaffold hello") }
+if okt == 0 { fails = fails + 1 }
+// run the compiled hello (absence of hello.exe -> command fails -> FAIL)
+var rc_run = exec_code("cd /d \"" + proj + "\" && \"hello.exe\" >nul 2>&1")
+var okr = 0
+if rc_run == 0 { okr = 1 }
+if okr == 1 { println("  [PASS] scaffold hello runs (exit 0)") } else { println("  [FAIL] scaffold hello runs (exit 0)") }
+if okr == 0 { fails = fails + 1 }
+// ---------- 3) rejection: existing dir / invalid name ----------
+var r2 = exec_code("cd /d \"" + work + "\" && \"" + pkg + "\" new myproj >nul 2>&1")
+var ok2 = 0
+if r2 != 0 { ok2 = 1 }
+if ok2 == 1 { println("  [PASS] existing dir rejected (exit non-zero)") } else { println("  [FAIL] existing dir rejected (exit non-zero)") }
+if ok2 == 0 { fails = fails + 1 }
+var r3 = exec_code("cd /d \"" + work + "\" && \"" + pkg + "\" new a/b >nul 2>&1")
+var ok3 = 0
+if r3 != 0 { ok3 = 1 }
+if ok3 == 1 { println("  [PASS] invalid name (path separator) rejected (exit non-zero)") } else { println("  [FAIL] invalid name (path separator) rejected (exit non-zero)") }
+if ok3 == 0 { fails = fails + 1 }
+var fstr = to_string(fails)
+if fails == 0 { println("== tpkg p.9.2.5 probe done: 0 failure(s) ==") } else { println("== tpkg p.9.2.5 probe done: " + fstr + " failure(s) ==") }
+exit 0

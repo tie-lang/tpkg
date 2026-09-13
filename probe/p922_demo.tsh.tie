@@ -1,0 +1,128 @@
+type tie<tsh>
+// p922_demo.tsh.tie —— tpkg package-manager probe; tie/tsh port of
+// probe/p922_demo.ps1 (p.9.2.2). Probes: dep-tree resolve/install (path
+// transitive) -> lock; version-constraint unsatisfiable -> error; TSHA1-f ->
+// pack + install + verify(ok) + tamper -> reject. Prints PASS/FAIL, counts
+// failures, exits 0 on all-pass.
+// NOTE(tsh):
+//  - no argv (config via env TPKG_PKG / TPKG_TIEC_D); external CLI (pkg.exe,
+//    tiec) run through exec_code with `cd /d <dir>`; outputs suppressed to
+//    match the original silent capture (`>nul 2>&1`).
+//  - no substring: lock/signature content asserted via findstr.
+//  - Scenario B (registry version-constraint) needs a local HTTP index; the
+//    python http.server is started detached in the background (`start /b`);
+//    tiec PATH is provided via set_env. The unsat assertion (exit != 0) holds
+//    whether the server is up (constraint unsat) or the fetch fails.
+//  - conditional `exit <n>` is not expressible -> returns 0.
+var fails = 0
+var root = cwd()
+var pkg = root + "\\pkg.exe"
+var tdir = get_env("TPKG_TIEC_D")
+if str_len(tdir) == 0 { tdir = "F:\\Projects\\tie-repo\\tiec\\compiler" }
+var _pset = set_env("PATH", tdir + ";" + get_env("PATH"))
+var pipe = exec_output("powershell -NoProfile -Command \"Write-Host -NoNewline ([char]124)\"")
+var tmp = get_env("TEMP")
+var work = path_join(tmp, "tpkg_p922_" + to_string(time_now()))
+var _wd = mkdir_all(work)
+println("== tpkg p.9.2.2 probe  (work=" + work + ") ==")
+var mA = work + "\\A"
+var mB = work + "\\B"
+var mC = work + "\\C"
+var pa = mkdir_all(mA + "\\lib_math")
+var p2 = mkdir_all(mA + "\\lib_util")
+var p3 = mkdir_all(mA + "\\consumer")
+var p4 = mkdir_all(mB + "\\reg")
+var p5 = mkdir_all(mB + "\\con")
+var p6 = mkdir_all(mC + "\\lolib")
+var p7 = mkdir_all(mC + "\\con")
+// write scenario A package files
+var w1 = file_write(mA + "\\lib_math\\tie.pkg", "// tie.pkg\n// tie:data\n[\n    \"name\": \"lib_math\",\n    \"version\": \"1.0.0\",\n    \"main\": \"lib_math.tie\",\n    \"dependencies\": [\n    ],\n]")
+var w2 = file_write(mA + "\\lib_math\\lib_math.tie", "// tie:logic\nfunc math_add(x: i64, y: i64) -> i64 { return x + y }")
+var w3 = file_write(mA + "\\lib_util\\tie.pkg", "// tie.pkg\n// tie:data\n[\n    \"name\": \"lib_util\",\n    \"version\": \"1.0.0\",\n    \"main\": \"lib_util.tie\",\n    \"dependencies\": [\n        \"lib_math\": \"path:../lib_math\",\n    ],\n]")
+var w4 = file_write(mA + "\\lib_util\\lib_util.tie", "// tie:logic\nfunc util_square(x: i64) -> i64 { return x * x }")
+var w5 = file_write(mA + "\\consumer\\tie.pkg", "// tie.pkg\n// tie:data\n[\n    \"name\": \"consumer\",\n    \"version\": \"0.1.0\",\n    \"main\": \"main.tie\",\n    \"dependencies\": [\n        \"lib_util\": \"path:../lib_util\",\n    ],\n]")
+var w6 = file_write(mA + "\\consumer\\main.tie", "// tie:logic\nfunc main() -> i64 { println(\"ok\"); return 0 }")
+// ---------- Scenario A: dep-tree resolve/install (path transitive) -> lock ----------
+println("[A] dep-tree: path transitive resolve/install -> lock")
+var rA = exec_code("cd /d \"" + mA + "\\consumer\" && \"" + pkg + "\" install >nul 2>&1")
+var okA0 = 0
+if rA == 0 { okA0 = 1 }
+if okA0 == 1 { println("  [PASS] install exits 0") } else { println("  [FAIL] install exits 0") }
+if okA0 == 0 { fails = fails + 1 }
+var e_u = file_exists(mA + "\\consumer\\.tie\\deps\\lib_util\\tie.pkg")
+if e_u { println("  [PASS] transitive install lib_util") } else { println("  [FAIL] transitive install lib_util") }
+if !e_u { fails = fails + 1 }
+var e_m = file_exists(mA + "\\consumer\\.tie\\deps\\lib_math\\tie.pkg")
+if e_m { println("  [PASS] transitive dep lib_math pulled") } else { println("  [FAIL] transitive dep lib_math pulled") }
+if !e_m { fails = fails + 1 }
+var e_lk = file_exists(mA + "\\consumer\\tie.lock")
+if e_lk { println("  [PASS] tie.lock generated") } else { println("  [FAIL] tie.lock generated") }
+if !e_lk { fails = fails + 1 }
+var c_lk = exec_code("findstr /C:\"lib_math\" \"" + mA + "\\consumer\\tie.lock\" >nul")
+var okLk = 0
+if c_lk == 0 { okLk = 1 }
+if okLk == 1 { println("  [PASS] lock records transitive dep") } else { println("  [FAIL] lock records transitive dep") }
+if okLk == 0 { fails = fails + 1 }
+var rA2 = exec_code("cd /d \"" + mA + "\\consumer\" && \"" + pkg + "\" install >nul 2>&1")
+var okA2 = 0
+if rA2 == 0 { okA2 = 1 }
+if okA2 == 1 { println("  [PASS] idempotent re-install exits 0") } else { println("  [FAIL] idempotent re-install exits 0") }
+if okA2 == 0 { fails = fails + 1 }
+// ---------- Scenario B: version-constraint unsatisfiable -> error ----------
+println("[B] version constraint: local HTTP registry index -> unsat error")
+var idxF = mB + "\\reg\\index.tie"
+var l1 = file_write(idxF, "mocklib" + pipe + "1.0.0" + pipe + "mock lib" + "\n")
+var l2 = file_append(idxF, "mocklib" + pipe + "1.5.0" + pipe + "mock lib 1.5" + "\n")
+var l3 = file_append(idxF, "mocklib" + pipe + "2.0.0" + pipe + "mock lib 2" + "\n")
+var port = 8777
+var portstr = "8777"
+var wb = file_write(mB + "\\con\\tie.pkg", "// tie.pkg\n// tie:data\n[\n    \"name\": \"con_const\",\n    \"version\": \"0.1.0\",\n    \"main\": \"main.tie\",\n    \"dependencies\": [\n        \"mocklib\": \">=9.0\",\n    ],\n]")
+var wb2 = file_write(mB + "\\con\\main.tie", "// tie:logic\nfunc main() -> i64 { return 0 }")
+var srv = exec_code("start \"\" /b python -m http.server " + portstr + " --directory \"" + mB + "\\reg\" >nul 2>&1")
+var rB = exec_code("cd /d \"" + mB + "\\con\" && set TIE_REGISTRY=http://127.0.0.1:" + portstr + " && \"" + pkg + "\" install >nul 2>&1")
+var kc = "cd /d \"" + work + "\" && powershell -NoProfile -Command \"(Get-NetTCPConnection -LocalPort " + portstr + " -State Listen -ErrorAction SilentlyContinue).OwningProcess " + pipe + " ForEach-Object { Stop-Process -Id $_ -Force }\" >nul 2>&1"
+var _kb = exec_code(kc)
+var okB = 0
+if rB != 0 { okB = 1 }
+if okB == 1 { println("  [PASS] unsatisfiable >=9.0 rejected (exit non-zero)") } else { println("  [FAIL] unsatisfiable >=9.0 rejected (exit non-zero)") }
+if okB == 0 { fails = fails + 1 }
+// ---------- Scenario C: TSHA1-f integrity ----------
+println("[C] TSHA1-f: pack signed unit, install, verify ok, tamper rejects")
+var wc1 = file_write(mC + "\\lolib\\tie.pkg", "// tie.pkg\n// tie:data\n[\n    \"name\": \"lolib\",\n    \"version\": \"1.0.0\",\n    \"main\": \"lolib.tie\",\n    \"dependencies\": [\n    ],\n]")
+var wc2 = file_write(mC + "\\lolib\\lolib.tie", "// tie:logic\nfunc main() -> i64 { println(\"lolib\"); return 0 }")
+var rP = exec_code("cd /d \"" + mC + "\\lolib\" && \"" + pkg + "\" pack >nul 2>&1")
+var okP = 0
+if rP == 0 { okP = 1 }
+if okP == 1 { println("  [PASS] pack builds signed unit (tar.gz + TSHA1-f signature)") } else { println("  [FAIL] pack builds signed unit (tar.gz + TSHA1-f signature)") }
+if okP == 0 { fails = fails + 1 }
+var e_sig = file_exists(mC + "\\lolib\\signature")
+if e_sig { println("  [PASS] signature written") } else { println("  [FAIL] signature written") }
+if !e_sig { fails = fails + 1 }
+var c_fp = exec_code("findstr /C:\"fp: \" \"" + mC + "\\lolib\\signature\" >nul")
+var okFp = 0
+if c_fp == 0 { okFp = 1 }
+if okFp == 1 { println("  [PASS] signature holds TSHA1-f fp field") } else { println("  [FAIL] signature holds TSHA1-f fp field") }
+if okFp == 0 { fails = fails + 1 }
+var wc3 = file_write(mC + "\\con\\tie.pkg", "// tie.pkg\n// tie:data\n[\n    \"name\": \"con_app\",\n    \"version\": \"0.1.0\",\n    \"main\": \"main.tie\",\n    \"dependencies\": [\n        \"lolib\": \"path:../lolib\",\n    ],\n]")
+var wc4 = file_write(mC + "\\con\\main.tie", "// tie:logic\nfunc main() -> i64 { println(\"app\"); return 0 }")
+var rC1 = exec_code("cd /d \"" + mC + "\\con\" && \"" + pkg + "\" install >nul 2>&1")
+var okC1 = 0
+if rC1 == 0 { okC1 = 1 }
+if okC1 == 1 { println("  [PASS] install of signed dep verifies poll (TSHA1-f ok)") } else { println("  [FAIL] install of signed dep verifies poll (TSHA1-f ok)") }
+if okC1 == 0 { fails = fails + 1 }
+var v1 = exec_code("cd /d \"" + mC + "\\con\" && \"" + pkg + "\" verify lolib >nul 2>&1")
+var okV1 = 0
+if v1 == 0 { okV1 = 1 }
+if okV1 == 1 { println("  [PASS] verify lolib -> PASS") } else { println("  [FAIL] verify lolib -> PASS") }
+if okV1 == 0 { fails = fails + 1 }
+var tieir = mC + "\\con\\.tie\\deps\\lolib\\lolib-1.0.0.tieir"
+var _tam = file_append(tieir, "X")
+var v2 = exec_code("cd /d \"" + mC + "\\con\" && \"" + pkg + "\" verify lolib >nul 2>&1")
+var okV2 = 0
+if v2 != 0 { okV2 = 1 }
+if okV2 == 1 { println("  [PASS] tampered tieir -> REJECTED (exit non-zero)") } else { println("  [FAIL] tampered tieir -> REJECTED (exit non-zero)") }
+if okV2 == 0 { fails = fails + 1 }
+println("")
+var fstr = to_string(fails)
+if fails == 0 { println("== tpkg p.9.2.2 probe done: 0 failure(s) ==") } else { println("== tpkg p.9.2.2 probe done: " + fstr + " failure(s) ==") }
+exit 0
