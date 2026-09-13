@@ -17,13 +17,28 @@ function Write-File([string]$path, [string[]]$lines) {
 }
 
 function Invoke-Pkg([string]$dir, [string[]]$cl) {
-    $o = Join-Path $work ("o_" + [guid]::NewGuid().ToString("N") + ".out")
-    $e = Join-Path $work ("e_" + [guid]::NewGuid().ToString("N") + ".err")
-    $p = Start-Process -FilePath $Pkg -ArgumentList $cl -WorkingDirectory $dir -Wait `
-         -PassThru -NoNewWindow -RedirectStandardOutput $o -RedirectStandardError $e
-    $out = ""; $err = ""
-    if (Test-Path $o) { $out = Get-Content $o -Raw }
-    if (Test-Path $e) { $err = Get-Content $e -Raw }
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $Pkg
+    $psi.WorkingDirectory = $dir
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.Arguments = ($cl -join ' ')
+    # retry the spawn: the sandbox intermittently rejects process creation
+    $p = $null
+    $attempts = 0
+    while ($p -eq $null -and $attempts -lt 5) {
+        try {
+            $p = New-Object System.Diagnostics.Process
+            $p.StartInfo = $psi
+            [void]$p.Start()
+        } catch { Start-Sleep -Milliseconds 400; $p = $null; $attempts++ }
+    }
+    if ($p -eq $null) { return [pscustomobject]@{ Exit = -999; Out = "spawn failed" } }
+    $out = $p.StandardOutput.ReadToEnd()
+    $err = $p.StandardError.ReadToEnd()
+    $p.WaitForExit()
     return [pscustomobject]@{ Exit = $p.ExitCode; Out = $out + $err }
 }
 

@@ -61,6 +61,9 @@ func main() -> i64 {
     if cmd == "init" {
         return cmd_init()
     }
+    if cmd == "new" {
+        return cmd_new()
+    }
     if cmd == "add" {
         return cmd_add()
     }
@@ -113,6 +116,7 @@ func help_text() -> string {
            "\n" +
            "用法:\n" +
            "  tie init <项目名>      初始化项目（生成 tie.pkg + main.tie 模板）\n" +
+           "  tie new <项目名>      脚手架新建项目（p.9.2.5：src/ + 清单 + README + .gitignore + LICENSE）\n" +
            "  tie add <依赖>         添加依赖\n" +
            "  tie remove <包名>      移除依赖\n" +
            "  tie install            安装全部依赖到 .tie/deps/（解析 + 生成 tie.lock）\n" +
@@ -211,6 +215,156 @@ func main_template() -> string {
            "func main() {\n" +
            "    println(\"Hello, tie!\")\n" +
            "}\n"
+}
+
+// ================= tie new：脚手架新建项目（p.9.2.5） =================
+
+// 脚手架 `tpkg new <项目名> [--git]`：生成标准目录骨架（src/ + 清单 + README
+// + .gitignore + LICENSE），项目名注入模板。可选 `--git` 在生成后 `git init`。
+func cmd_new() -> i64 {
+    var name = arg_string(1)
+    if name == "" {
+        print_err("[pkg] 用法: tie new <项目名> [--git]\n")
+        return 1
+    }
+    // 校验项目名为目录安全名（仅字母数字 _- . 与 /，排除路径穿越）。
+    if !safe_project_name(name) {
+        print_err("[pkg] 项目名非法（仅允许字母/数字/_/-/.，且不得含路径分隔）: " + name + "\n")
+        return 1
+    }
+    // 已存在目录 → 拒绝（避免覆盖已有项目）
+    if dir_exists(name) {
+        print_err("[pkg] 目录已存在: " + name + "（未生成任何文件）\n")
+        return 1
+    }
+    if !mkdir_all(name) {
+        print_err("[pkg] 创建目录失败: " + name + "\n")
+        return 1
+    }
+    if !mkdir_all(name + "/src") {
+        print_err("[pkg] 创建 src/ 失败\n")
+        return 1
+    }
+    // 逐文件生成（已存在则跳过；写失败计失败并继续其余文件）
+    var failed: i64 = 0
+    if !write_if_absent(name + "/tie.pkg", new_pkg_template(name)) {
+        failed = failed + 1
+    }
+    if !write_if_absent(name + "/src/main.tie", new_main_template(name)) {
+        failed = failed + 1
+    }
+    if !write_if_absent(name + "/README.md", new_readme_template(name)) {
+        failed = failed + 1
+    }
+    if !write_if_absent(name + "/.gitignore", new_gitignore_template()) {
+        failed = failed + 1
+    }
+    if !write_if_absent(name + "/LICENSE", new_license_template()) {
+        failed = failed + 1
+    }
+    // 可选 git init
+    var opt = arg_string(2)
+    if opt == "--git" {
+        var rc = exec_code("git init " + name)
+        if rc == 0 {
+            println("[pkg] 已 git init: " + name)
+        } else {
+            print_err("[pkg] git init 失败（可稍后手动执行）\n")
+        }
+    }
+    if failed > 0 {
+        print_err("[pkg] 脚手架生成完成，失败 " + to_string(failed) + " 项\n")
+        return 1
+    }
+    println("[pkg] 脚手架创建完成: " + name)
+    println("[pkg] 下一步: cd " + name + " && tie run（或 tiec src/main.tie -o hello.exe）")
+    return 0
+}
+
+// 写文件（已存在则跳过返回 true；写失败返回 false）。调用于 new 脚手架。
+func write_if_absent(path: string, content: string) -> bool {
+    if file_exists(path) {
+        return true
+    }
+    return file_write(path, content)
+}
+
+// 项目名是否为目录安全名：非空、仅含 [A-Za-z0-9._-]，且不含 / \ （排除路径穿越）。
+func safe_project_name(name: string) -> bool {
+    var okchars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
+    var n: i64 = len(name)
+    if n == 0 {
+        return false
+    }
+    var i: i64 = 0
+    while i < n {
+        if mf.find(okchars, str_char(name, i)) < 0 {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// 目录是否存在（file_exists 对目录恒 false，用 list_dir 探测）。
+func dir_exists(name: string) -> bool {
+    var entries = list_dir(name)
+    return len(entries) > 0
+}
+
+// new 脚手架 tie.pkg 模板（p.9.2.5；name 注入，main 指向 src/main.tie）。
+func new_pkg_template(name: string) -> string {
+    return "// tie.pkg\n" +
+           "// tie:data\n" +
+           "[\n" +
+           "    \"name\": \"" + name + "\",\n" +
+           "    \"version\": \"0.1.0\",\n" +
+           "    \"description\": \"tie 项目\",\n" +
+           "    \"role\": \"logic\",\n" +
+           "    \"main\": \"src/main.tie\",\n" +
+           "    \"author\": \"\",\n" +
+           "    \"license\": \"TPL 2.0\",\n" +
+           "    \"dependencies\": [\n" +
+           "    ],\n" +
+           "]\n"
+}
+
+// new 脚手架 src/main.tie 模板（可编译可运行的 hello）。
+func new_main_template(name: string) -> string {
+    return "// tie:logic\n" +
+           "// 由 tpkg new 生成\n" +
+           "\n" +
+           "func main() {\n" +
+           "    println(\"Hello from " + name + "!\")\n" +
+           "}\n"
+}
+
+// new 脚手架 README.md 模板。
+func new_readme_template(name: string) -> string {
+    return "# " + name + "\n" +
+           "\n" +
+           "tie 项目 / tie project.\n" +
+           "\n" +
+           "由 [tpkg](https://github.com/tie-lang/tpkg) 脚手架 `tpkg new` 生成。\n"
+}
+
+// new 脚手架 .gitignore 模板。
+func new_gitignore_template() -> string {
+    return "# build artifacts\n" +
+           "*.exe\n" +
+           "*.ll\n" +
+           "*.o\n" +
+           "*.obj\n" +
+           "*.log\n" +
+           "\n" +
+           "# install / cache\n" +
+           ".tie/\n"
+}
+
+// new 脚手架 LICENSE 模板（TPL 2.0 引用，避免在脚手架内展开全文）。
+func new_license_template() -> string {
+    return "本仓库按 Tie Public License v2.0（TPL 2.0）授权发布（全文见 https://github.com/tie-lang/tpkg）。\n" +
+           "EN: Released under Tie Public License v2.0 (TPL 2.0), full text at https://github.com/tie-lang/tpkg.\n"
 }
 
 // ================= tie add：添加依赖 =================
