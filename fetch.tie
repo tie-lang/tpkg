@@ -495,4 +495,4 @@ namespace fetch {
 // 使 collect_ns_paths 收集的命名空间顺序为 [fetch, version]，
 // 保证导入方别名（如 deps 的 ft）正确映射到本文件的 fetch 命名空间。
 // 注：文件末尾的 import 无后续语句，ASI 不触发，须显式加分号。
-import "../std/version.tie" as ver;
+import "./std/version.tie" as ver;
