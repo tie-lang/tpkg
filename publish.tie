@@ -170,7 +170,7 @@ namespace publish {
         var fi: i64 = 0
         var copied: i64 = 0
         while fi < len(files) {
-            var rel = files[fi]
+            var rel = strip_dotrel(files[fi])
             if keep_for_publish(rel) {
                 var dest = path_join(staging, rel)
                 var parent = path_dirname(dest)
@@ -222,6 +222,17 @@ namespace publish {
         }
         println("[pkg] 发布完成。HTTP 注册表上传接口为占位（见 docs/plans/package-manager.md）")
         return 0
+    }
+
+    // 规范化 walk_dir 的 Windows `.\` / Unix `./` 前缀（去除），便于前缀判定与路径拼接。
+    func strip_dotrel(rel: string) -> string {
+        if starts_with(rel, "./") {
+            return slice(rel, 2, len(rel))
+        }
+        if starts_with(rel, ".\\") {
+            return slice(rel, 2, len(rel))
+        }
+        return rel
     }
 
     // 文件是否纳入发布包：排除工作区缓存/构建产物目录与生成文件。
