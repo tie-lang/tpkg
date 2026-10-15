@@ -276,6 +276,44 @@ func replace_all(s: string, from: string, to: string) -> string {
     return out
 }
 
+// 逗号切分（目录表）。
+func sc_split_csv(s: string) -> table<string> {
+    var out = table_new_string()
+    var cur: string = ""
+    var i: i64 = 0
+    var n: i64 = len(s)
+    while i < n {
+        var c = str_char(s, i)
+        if c == "," {
+            if cur != "" {
+                table_push(out, cur)
+            }
+            cur = ""
+        } else {
+            cur = cur + c
+        }
+        i = i + 1
+    }
+    if cur != "" {
+        table_push(out, cur)
+    }
+    return out
+}
+
+// 从表移除首个等于 v 的项。
+func sc_remove_str(t: table<string>, v: string) -> table<string> {
+    var out = table_new_string()
+    var removed = false
+    for x in t {
+        if x == v && removed == false {
+            removed = true
+        } else {
+            table_push(out, x)
+        }
+    }
+    return out
+}
+
 // ============================================================================
 // 三、公共面与入口内容
 // ============================================================================
@@ -298,7 +336,7 @@ func sc_config(name: string, kind: string, main_rel: string) -> string {
     return sb_build(sb)
 }
 
-func sc_readme(name: string, kind: string, dirs: table<string>) -> string {
+func sc_readme(name: string, kind: string, dirs: table<string>, vnotes: table<string>) -> string {
     var sb = string_builder()
     sb_append(sb, "# " + name + "\n\n")
     sb_append(sb, "tie 项目（kind: " + kind + "）/ tie project.\n\n")
@@ -312,6 +350,15 @@ func sc_readme(name: string, kind: string, dirs: table<string>) -> string {
         i = i + 1
     }
     sb_append(sb, "```\n\n")
+    if len(vnotes) > 0 {
+        sb_append(sb, "## 变体 / Variants\n\n")
+        var v: i64 = 0
+        while v < len(vnotes) {
+            sb_append(sb, "- " + vnotes[v] + "\n")
+            v = v + 1
+        }
+        sb_append(sb, "\n")
+    }
     sb_append(sb, "## 约定 / Conventions\n\n")
     sb_append(sb, "- 公共面：`tpkg.config.td`（清单）、`LICENSE`、`.gitignore`、`README.md`。\n")
     sb_append(sb, "- 构建产物进 `target/`；本地材料进 `_local_only/`（不入库）。\n")
@@ -402,29 +449,77 @@ func sc_write(path: string, content: string) -> bool {
 }
 
 pub func sc_generate(dir: string, name: string, kind: string) -> i64 {
+    return sc_generate_v(dir, name, kind, table_new_string())
+}
+
+// 带变体生成（变体合法性/冲突已由调用方校验；本函数只应用）。
+pub func sc_generate_v(dir: string, name: string, kind: string, variants: table<string>) -> i64 {
     g_sc_only_absent = false
-    return sc_generate_impl(dir, name, kind)
+    return sc_impl(dir, name, kind, variants)
 }
 
 // 宽容生成：已存在文件跳过（用于在既有目录补骨架，如 tie init）。
 pub func sc_fill_missing(dir: string, name: string, kind: string) -> i64 {
     g_sc_only_absent = true
-    return sc_generate_impl(dir, name, kind)
+    return sc_impl(dir, name, kind, table_new_string())
 }
 
-func sc_generate_impl(dir: string, name: string, kind: string) -> i64 {
+func sc_impl(dir: string, name: string, kind: string, variants: table<string>) -> i64 {
     var def = sc_def(kind)
     if def == "" {
         return 1
     }
     var main_rel = sc_main_rel(kind)
     var dirs = sc_dirs(kind)
+    // ---- 变体应用（add/del 目录、note；cli --script = 轻档布局） ----
+    var vnotes = table_new_string()
+    var light = false
+    var vi: i64 = 0
+    while vi < len(variants) {
+        var v = variants[vi]
+        if kind == "cli" {
+            if v == "script" {
+                light = true
+            }
+        }
+        var adds = sc_vspec_seg(kind, v, 0)
+        var dels = sc_vspec_seg(kind, v, 1)
+        var note = sc_vspec_seg(kind, v, 2)
+        if note != "" {
+            table_push(vnotes, "`--" + v + "`：" + note)
+        }
+        if dels != "" {
+            var dl = sc_split_csv(dels)
+            var di: i64 = 0
+            while di < len(dl) {
+                dirs = sc_remove_str(dirs, dl[di])
+                di = di + 1
+            }
+        }
+        if adds != "" {
+            var al = sc_split_csv(adds)
+            var ai2: i64 = 0
+            while ai2 < len(al) {
+                table_push(dirs, al[ai2])
+                ai2 = ai2 + 1
+            }
+        }
+        vi = vi + 1
+    }
+    // 入口（lib 门面=<name>；轻档=根扁平 main.tie）
+    var entry_rel = main_rel
+    if kind == "lib" {
+        entry_rel = "src/" + name + ".tie"
+    }
+    if light {
+        entry_rel = "main.tie"
+    }
     var failed: i64 = 0
     // 公共面
-    if !sc_write(dir + "/tpkg.config.td", sc_config(name, kind, main_rel)) {
+    if !sc_write(dir + "/tpkg.config.td", sc_config(name, kind, entry_rel)) {
         failed = failed + 1
     }
-    if !sc_write(dir + "/README.md", sc_readme(name, kind, dirs)) {
+    if !sc_write(dir + "/README.md", sc_readme(name, kind, dirs, vnotes)) {
         failed = failed + 1
     }
     if !sc_write(dir + "/LICENSE", sc_license()) {
@@ -433,22 +528,19 @@ func sc_generate_impl(dir: string, name: string, kind: string) -> i64 {
     if !sc_write(dir + "/.gitignore", sc_gitignore()) {
         failed = failed + 1
     }
-    // 档面：目录 + .gitkeep
+    // 档面：目录 + .gitkeep（轻档=无目录，根扁平）
     var i: i64 = 0
-    while i < len(dirs) {
-        var d = dir + "/" + dirs[i]
-        if !mkdir_all(d) {
-            failed = failed + 1
+    if light == false {
+        while i < len(dirs) {
+            var d = dir + "/" + dirs[i]
+            if !mkdir_all(d) {
+                failed = failed + 1
+            }
+            if !sc_write(d + "/.gitkeep", "") {
+                failed = failed + 1
+            }
+            i = i + 1
         }
-        if !sc_write(d + "/.gitkeep", "") {
-            failed = failed + 1
-        }
-        i = i + 1
-    }
-    // 入口（lib 档门面用 <name> 动态命名）
-    var entry_rel = main_rel
-    if kind == "lib" {
-        entry_rel = "src/" + name + ".tie"
     }
     if !sc_write(dir + "/" + entry_rel, sc_entry(name, kind, entry_rel)) {
         failed = failed + 1
@@ -457,7 +549,154 @@ func sc_generate_impl(dir: string, name: string, kind: string) -> i64 {
 }
 
 // ============================================================================
-// 五、用户模板
+// 五、变体（档内场景开关；ch04 §4.2 / ch05 各档变体行）
+// ============================================================================
+// 编码 "add_dirs|del_dirs|note"（add/del 逗号分隔，可空）。
+// cli 的 --script = 布局级变体（轻档，根扁平单文件）——由生成器特判。
+
+func sc_variant_def(kind: string, v: string) -> string {
+    if kind == "website" {
+        if v == "static" { return "||纯静态生成（静态资产流）" }
+        if v == "ssr" { return "||动态渲染（服务端）" }
+        if v == "api" { return "src/api||附带后端面" }
+    }
+    if kind == "backend" {
+        if v == "serverless" { return "src/functions||函数路由/触发器（无服务器）" }
+        if v == "realtime" { return "src/realtime||实时服务（长连接/状态同步）" }
+        if v == "with-db" { return "migrations||数据库迁移面" }
+        if v == "micro" { return "services||多服务拆分" }
+    }
+    if kind == "app" {
+        if v == "game" { return "src/game||游戏（主循环/场景/实体/资源管线）" }
+    }
+    if kind == "cli" {
+        if v == "script" { return "||轻档脚本形态（根扁平单文件）" }
+        if v == "with-lib" { return "lib||与 CLI 双目标" }
+    }
+    if kind == "lib" {
+        if v == "agg" { return "sub||聚合库（一个包聚合多个子库）" }
+        if v == "sdk" { return "bindings,docs||SDK 面（bindings/examples/docs）" }
+    }
+    if kind == "plugin" {
+        if v == "browser" { return "||宿主=browser" }
+    }
+    if kind == "os" {
+        if v == "driver" { return "ext||树外驱动/模块" }
+    }
+    if kind == "embedded" {
+        if v == "robotics" { return "src/perception,src/decision,sim||机器人（感知/决策 + sim 仿真面）" }
+    }
+    if kind == "data" {
+        if v == "analysis" { return "reports||报告渲染面" }
+    }
+    if kind == "hardware" {
+        if v == "mech" { return "||机械方向" }
+        if v == "rtl" { return "rtl||芯片方向（RTL）" }
+    }
+    if kind == "art" {
+        if v == "font" { return "fonts||字体工程" }
+        if v == "design" { return "design||设计系统" }
+    }
+    return ""
+}
+
+pub func sc_variant_valid(kind: string, v: string) -> bool {
+    return sc_variant_def(kind, v) != ""
+}
+
+pub func sc_variant_list(kind: string) -> table<string> {
+    var t = table_new_string()
+    if kind == "website" {
+        table_push(t, "static")
+        table_push(t, "ssr")
+        table_push(t, "api")
+    }
+    if kind == "backend" {
+        table_push(t, "serverless")
+        table_push(t, "realtime")
+        table_push(t, "with-db")
+        table_push(t, "micro")
+    }
+    if kind == "app" {
+        table_push(t, "game")
+    }
+    if kind == "cli" {
+        table_push(t, "script")
+        table_push(t, "with-lib")
+    }
+    if kind == "lib" {
+        table_push(t, "agg")
+        table_push(t, "sdk")
+    }
+    if kind == "plugin" {
+        table_push(t, "browser")
+    }
+    if kind == "os" {
+        table_push(t, "driver")
+    }
+    if kind == "embedded" {
+        table_push(t, "robotics")
+    }
+    if kind == "data" {
+        table_push(t, "analysis")
+    }
+    if kind == "hardware" {
+        table_push(t, "mech")
+        table_push(t, "rtl")
+    }
+    if kind == "art" {
+        table_push(t, "font")
+        table_push(t, "design")
+    }
+    return t
+}
+
+// 变体冲突（ch04：冲突变体由 tpkg 生成时拒绝）。
+pub func sc_conflict(kind: string, v1: string, v2: string) -> bool {
+    if kind == "website" {
+        if v1 == "static" && v2 == "ssr" { return true }
+        if v1 == "ssr" && v2 == "static" { return true }
+    }
+    if kind == "backend" {
+        if v1 == "serverless" && v2 == "realtime" { return true }
+        if v1 == "realtime" && v2 == "serverless" { return true }
+    }
+    return false
+}
+
+// 取变体 spec 的段（0=add / 1=del / 2=note）。
+func sc_vspec_seg(kind: string, v: string, i: i64) -> string {
+    var spec = sc_variant_def(kind, v)
+    if spec == "" {
+        return ""
+    }
+    var cur: i64 = 0
+    var s: string = ""
+    var n: i64 = len(spec)
+    var k: i64 = 0
+    while k <= n {
+        var at_end = (k == n)
+        var is_sep = false
+        if !at_end {
+            var c = str_char(spec, k)
+            if c == "|" { is_sep = true }
+        }
+        if at_end || is_sep {
+            if cur == i {
+                return s
+            }
+            cur = cur + 1
+            s = ""
+        } else {
+            s = s + str_char(spec, k)
+        }
+        k = k + 1
+    }
+    return ""
+}
+
+// ============================================================================
+// 六、用户模板
 // ============================================================================
 
 pub func sc_user_root() -> string {

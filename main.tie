@@ -159,6 +159,9 @@ func cmd_init() -> i64 {
         var a = arg_string(ai)
         if mf.starts_with(a, "--kind=") {
             kind = mf.slice(a, 7, len(a))
+        } else if mf.starts_with(a, "--") {
+            print_err("[pkg] init 暂不支持选项: " + a + "（变体请用 tie new）\n")
+            return 1
         }
         ai = ai + 1
     }
@@ -187,6 +190,7 @@ func cmd_new() -> i64 {
     var kind: string = ""
     var tpl: string = ""
     var want_git: bool = false
+    var variants = table_new_string()
     var i: i64 = 1
     while i < arg_count() {
         var a = arg_string(i)
@@ -196,6 +200,8 @@ func cmd_new() -> i64 {
             tpl = mf.slice(a, 11, len(a))
         } else if a == "--git" {
             want_git = true
+        } else if mf.starts_with(a, "--") && len(a) > 2 {
+            table_push(variants, mf.slice(a, 2, len(a)))
         } else if name == "" {
             name = a
         }
@@ -220,6 +226,10 @@ func cmd_new() -> i64 {
     }
     if tpl != "" && kind != "" {
         print_err("[pkg] --kind 与 --template 互斥\n")
+        return 1
+    }
+    if tpl != "" && len(variants) > 0 {
+        print_err("[pkg] --template 模式不支持变体\n")
         return 1
     }
     if !mkdir_all(name) {
@@ -251,9 +261,47 @@ func cmd_new() -> i64 {
             print_err("\n")
             return 1
         }
-        failed = sc.sc_generate(name, name, kind)
+        // 变体校验（该档变体集）
+        var vv: i64 = 0
+        while vv < len(variants) {
+            if !sc.sc_variant_valid(kind, variants[vv]) {
+                print_err("[pkg] 档 " + kind + " 不支持变体: --" + variants[vv] + "\n")
+                print_err("[pkg] 该档可用变体: ")
+                var vl = sc.sc_variant_list(kind)
+                if len(vl) == 0 {
+                    print_err("（无）")
+                } else {
+                    var vk: i64 = 0
+                    while vk < len(vl) {
+                        print_err("--" + vl[vk] + " ")
+                        vk = vk + 1
+                    }
+                }
+                print_err("\n")
+                return 1
+            }
+            vv = vv + 1
+        }
+        // 冲突对（互斥变体由 tpkg 拒绝并提示）
+        var v1i: i64 = 0
+        while v1i < len(variants) {
+            var v2i: i64 = v1i + 1
+            while v2i < len(variants) {
+                if sc.sc_conflict(kind, variants[v1i], variants[v2i]) {
+                    print_err("[pkg] 变体冲突: --" + variants[v1i] + " 与 --" + variants[v2i] + " 不可同时使用\n")
+                    return 1
+                }
+                v2i = v2i + 1
+            }
+            v1i = v1i + 1
+        }
+        failed = sc.sc_generate_v(name, name, kind, variants)
         if failed == 0 {
-            println("[pkg] 已生成: " + name + "（kind " + kind + "）")
+            var vtail = ""
+            if len(variants) > 0 {
+                vtail = "，变体 " + to_string(len(variants)) + " 个"
+            }
+            println("[pkg] 已生成: " + name + "（kind " + kind + vtail + "）")
         }
     }
     if want_git {

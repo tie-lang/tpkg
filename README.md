@@ -45,6 +45,9 @@ tiec main.tie -o pkg.exe --no-cache   # --no-cache 保证产出，避免 tiec �
 - **多模板脚手架（35 档）**：`tpkg new --kind=<档>` 覆盖规范六域 35 档；
   `--template=<名>` 用户模板（~/.tpkg/templates/，`{{name}}` 字符串替换）；
   `tpkg template list` 列出官方档与用户模板；清单缺省 `main` 按 kind 推导。
+- **变体引擎**：档内场景开关（`--static` / `--serverless` / `--sdk` / `--robotics` 等，
+  与 ch05 各档变体行一致）；互斥变体生成时拒绝（如 `--static`×`--ssr`）；
+  `cli --script` 生成轻档（根扁平单文件）。
 
 ## License
 
