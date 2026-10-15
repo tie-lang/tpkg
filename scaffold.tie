@@ -583,9 +583,12 @@ func sc_gen_content(kind: string, rel: string, ftype: string, blurb: string) -> 
     return ""
 }
 
-// 写领域示例文件；返回失败计数。
-func sc_extra_write(dir: string, kind: string) -> i64 {
-    var spec = sc_extra(kind)
+// 写领域示例文件；返回失败计数。spec_override 非空时替代 kind 默认示例表。
+func sc_extra_write(dir: string, kind: string, spec_override: string) -> i64 {
+    var spec = spec_override
+    if spec == "" {
+        spec = sc_extra(kind)
+    }
     if spec == "" {
         return 0
     }
@@ -681,12 +684,18 @@ func sc_impl(dir: string, name: string, kind: string, variants: table<string>) -
     // ---- 变体应用（add/del 目录、note；cli --script = 轻档布局） ----
     var vnotes = table_new_string()
     var light = false
+    var is_daemon = false
     var vi: i64 = 0
     while vi < len(variants) {
         var v = variants[vi]
         if kind == "cli" {
             if v == "script" {
                 light = true
+            }
+        }
+        if kind == "backend" {
+            if v == "daemon" {
+                is_daemon = true
             }
         }
         var adds = sc_vspec_seg(kind, v, 0)
@@ -752,9 +761,13 @@ func sc_impl(dir: string, name: string, kind: string, variants: table<string>) -
     if !sc_write(dir + "/" + entry_rel, sc_entry(name, kind, entry_rel)) {
         failed = failed + 1
     }
-    // 领域示例文件（轻档跳过）
+    // 领域示例文件（轻档跳过；daemon 变体=协议服务示例）
     if light == false {
-        failed = failed + sc_extra_write(dir, kind)
+        if is_daemon {
+            failed = failed + sc_extra_write(dir, kind, "src/protocol/msg.tie|libfn|协议消息定义（示例）;config/dev.td|td|服务配置（示例）")
+        } else {
+            failed = failed + sc_extra_write(dir, kind, "")
+        }
     }
     return failed
 }
@@ -776,6 +789,7 @@ func sc_variant_def(kind: string, v: string) -> string {
         if v == "realtime" { return "src/realtime||实时服务（长连接/状态同步）" }
         if v == "with-db" { return "migrations||数据库迁移面" }
         if v == "micro" { return "services||多服务拆分" }
+        if v == "daemon" { return "src/protocol|src/routes,src/middleware|非 Web 服务（长驻守护/协议服务，如 LSP）" }
     }
     if kind == "app" {
         if v == "game" { return "src/game||游戏（主循环/场景/实体/资源管线）" }
@@ -827,6 +841,7 @@ pub func sc_variant_list(kind: string) -> table<string> {
         table_push(t, "realtime")
         table_push(t, "with-db")
         table_push(t, "micro")
+        table_push(t, "daemon")
     }
     if kind == "app" {
         table_push(t, "game")
