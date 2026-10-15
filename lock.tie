@@ -10,12 +10,12 @@ type tie<class>
 //           "lib_colors": {
 //               "version": "path",                          // 解析后版本
 //               "source": "path:../lib_colors",             // 来源（path 路径 / git url / registry url）
-//               "spec": "path:../lib_colors",               // 原 spec（tie.pkg 中写的形式）
+//               "spec": "path:../lib_colors",               // 原 spec（tpkg.config.td 中写的形式）
 //           },
 //       ],
 //   ]
 //
-// 幂等约定：install 时若 tie.lock 存在且与当前 tie.pkg 直接依赖一致（valid），
+// 幂等约定：install 时若 tie.lock 存在且与当前 tpkg.config.td 直接依赖一致（valid），
 // 则直接按锁文件恢复（不再重新解析/拉取）；否则重新解析并覆盖写入。
 //
 // tie 约束处理（重要）：
@@ -322,7 +322,7 @@ namespace lock {
 
     // ================= 锁文件校验 =================
 
-    // 解析 tie.pkg 的依赖名序列（自备轻量扫描；tie.pkg 与锁文件格式同族）。
+    // 解析 tpkg.config.td 的依赖名序列（自备轻量扫描；tpkg.config.td 与锁文件格式同族）。
     // want_name = true 取名字，false 取 spec。
     func pkg_scan(src: string, want_name: bool) -> string {
         var out: string = ""
@@ -380,7 +380,7 @@ namespace lock {
         return out
     }
 
-    // tie.pkg 直接依赖个数。
+    // tpkg.config.td 直接依赖个数。
     func pkg_dep_count(src: string) -> i64 {
         var seq = pkg_scan(src, true)
         if seq == "" {
@@ -398,8 +398,8 @@ namespace lock {
         return c + 1
     }
 
-    // 校验锁文件与当前 tie.pkg（pkg_src 为其文本）是否一致：
-    // tie.pkg 的每个直接依赖都须在锁中找到同名同 spec 条目（锁含传递依赖，
+    // 校验锁文件与当前 tpkg.config.td（pkg_src 为其文本）是否一致：
+    // tpkg.config.td 的每个直接依赖都须在锁中找到同名同 spec 条目（锁含传递依赖，
     // 条目数 >= 直接依赖数）。一致 → true（幂等恢复前提）。
     pub func valid(lock_text: string, pkg_src: string) -> bool {
         var pcnt = pkg_dep_count(pkg_src)

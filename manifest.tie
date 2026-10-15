@@ -1,7 +1,7 @@
 type tie<class>
-// manifest.tie —— tie.pkg 清单解析模块（M6 包管理器骨架 E1/E2）
+// manifest.tie —— tpkg.config.td 清单解析模块（M6 包管理器骨架 E1/E2）
 //
-// 职责：解析 tie:data 格式的 tie.pkg 清单文件文本，提供字段提取与依赖
+// 职责：解析 tie:data 格式的 tpkg.config.td 清单文件文本，提供字段提取与依赖
 // 增删能力。全部基于字符串原语（len / str_char / 拼接 / 循环 / 分支），
 // 纯函数无状态，符合「清单解析 = 文本处理」的定位（分层原则：能进 std 的
 // 进 std、能写 tie 的不进 Rust——此处即 tie 自写清单解析器）。
@@ -17,11 +17,11 @@ type tie<class>
 // - `table`/`text`/`code`/`char`/`bool`/`i64`/`f64` 是类型关键字，不可作
 //   变量名/参数名（参数统一用 tbl 等非关键字名）。
 //
-// tie.pkg 格式（tie init 生成的模板，tie:data 表字面量）：
+// tpkg.config.td 格式（tie init 生成的模板，tie:data 表字面量）：
 //   [
 //       "name": "demo",
 //       "version": "0.1.0",
-//       "role": "logic",
+//       "kind": "cli",
 //       "main": "main.tie",
 //       "dependencies": [
 //           "lib_math": "path:../lib_math",
@@ -175,7 +175,7 @@ namespace manifest {
     // ================= 清单字段提取 =================
 
     // 提取 `"key": "value"` 形式字段的 value（引号内内容）；未找到返回空串。
-    // 注意：先匹配到哪个键就返回哪个（tie.pkg 模板 name 键在文件头部，
+    // 注意：先匹配到哪个键就返回哪个（tpkg.config.td 模板 name 键在文件头部，
     // dependencies 段的键是包名，字段名与包名撞名属极端情况，首版可接受）。
     pub func field(src: string, key: string) -> string {
         var marker = "\"" + key + "\": \""

@@ -3,7 +3,7 @@ type tie<class>
 //
 // 职责：`tie publish` 打包（复用 pack，与 tie pack 完全同源：tieir + signature +
 // .tpkg）并打 git tag / push：
-//   1. 读 tie.pkg（由 main 读好 name/version/main/exports 传入）；
+//   1. 读 tpkg.config.td（由 main 读好 name/version/main/exports 传入）；
 //   2. 调用 pack.pack 完成打包（tzp 容器链路）；
 //   3. git tag v<version> + git push --tags（best-effort，非 git 仓库时提示跳过）；
 //      HTTP 注册表上传接口留占位（见 docs/plans/package-manager.md §3.9）。
@@ -134,19 +134,19 @@ namespace publish {
 
     // ================= 发布主流程 =================
 
-    // 执行发布：打 tar.gz + git tag/push。name/version/main 由 main 从 tie.pkg 读出传入。
+    // 执行发布：打 tar.gz + git tag/push。name/version/main 由 main 从 tpkg.config.td 读出传入。
     pub func publish(name: string, version: string, main_file: string, exports: string) -> i64 {
         // 1) 校验清单字段
         if name == "" {
-            print_err("[pkg] tie.pkg 缺少 name 字段\n")
+            print_err("[pkg] tpkg.config.td 缺少 name 字段\n")
             return 1
         }
         if version == "" {
-            print_err("[pkg] tie.pkg 缺少 version 字段\n")
+            print_err("[pkg] tpkg.config.td 缺少 version 字段\n")
             return 1
         }
         if main_file == "" {
-            print_err("[pkg] tie.pkg 缺少 main 字段\n")
+            print_err("[pkg] tpkg.config.td 缺少 main 字段\n")
             return 1
         }
         if !is_semver(version) {

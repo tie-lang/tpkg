@@ -3,7 +3,7 @@ type tie<logic>
 // main.tie —— tie 语言自写的包管理器 CLI 入口（Harbor M6 骨架 E1/E2 + E3/E4）
 //
 // 使用（由 Rust 侧 crates/tie/src/main.rs 识别子命令后编译执行本入口）：
-//   tie init <项目名>     初始化项目（生成 tie.pkg + main.tie 模板）
+//   tie init <项目名>     初始化项目（生成 tpkg.config.td + main.tie 模板）
 //   tie add <依赖>        添加依赖（path 源 / git 源 / registry 版本约束）
 //   tie remove <包名>     移除依赖
 //   tie install           安装全部依赖（解析 + 拉取 + 生成/校验 tie.lock）
@@ -16,7 +16,7 @@ type tie<logic>
 //   tie help              显示帮助
 //
 // 架构：本文件只做「CLI 子命令分派 + 编排」，具体能力按模块分工——
-//   manifest（./mf.tie）   tie.pkg 清单解析（tie:data 文本 → 依赖项）
+//   manifest（./mf.tie）   tpkg.config.td 清单解析（tie:data 文本 → 依赖项）
 //   deps（./dp.tie）       依赖安装/解析（path/git/registry 三源 + 锁文件落地）
 //   publish（./pb.tie）    打包发布（.tpkg + git tag/push）
 //   search（./sr.tie）     注册表搜索/信息查询
@@ -115,7 +115,7 @@ func help_text() -> string {
     return "tie 包管理器（Harbor M6，tie 语言自写）\n" +
            "\n" +
            "用法:\n" +
-           "  tie init <项目名>      初始化项目（生成 tie.pkg + main.tie 模板）\n" +
+           "  tie init <项目名>      初始化项目（生成 tpkg.config.td + main.tie 模板）\n" +
            "  tie new <项目名>      脚手架新建项目（p.9.2.5：src/ + 清单 + README + .gitignore + LICENSE）\n" +
            "  tie add <依赖>         添加依赖\n" +
            "  tie remove <包名>      移除依赖\n" +
@@ -153,10 +153,10 @@ func cmd_init() -> i64 {
         print_err("[pkg] 创建目录失败: " + name + "\n")
         return 1
     }
-    var pkg_path = name + "/tie.pkg"
+    var pkg_path = name + "/tpkg.config.td"
     var main_path = name + "/main.tie"
     var ok: bool = true
-    // 生成 tie.pkg 清单
+    // 生成 tpkg.config.td 清单
     if file_exists(pkg_path) {
         println("[pkg] 已存在 " + pkg_path + "，跳过")
     } else {
@@ -188,18 +188,18 @@ func cmd_init() -> i64 {
     return 1
 }
 
-// tie.pkg 清单模板（tie:data 格式；name 由 init 参数填充）。
+// tpkg.config.td 清单模板（tie:data 格式；name 由 init 参数填充）。
 func pkg_template(name: string) -> string {
-    return "// tie.pkg\n" +
+    return "// tpkg.config.td\n" +
            "// tie:data\n" +
            "[\n" +
            "    \"name\": \"" + name + "\",\n" +
            "    \"version\": \"0.1.0\",\n" +
            "    \"description\": \"tie 项目\",\n" +
-           "    \"role\": \"logic\",\n" +
+           "    \"kind\": \"cli\",\n" +
            "    \"main\": \"main.tie\",\n" +
            "    \"author\": \"\",\n" +
-           "    \"license\": \"MIT\",\n" +
+           "    \"license\": \"TPL-2.3\",\n" +
            "    \"dependencies\": [\n" +
            "    ],\n" +
            "]\n"
@@ -247,7 +247,7 @@ func cmd_new() -> i64 {
     }
     // 逐文件生成（已存在则跳过；写失败计失败并继续其余文件）
     var failed: i64 = 0
-    if !write_if_absent(name + "/tie.pkg", new_pkg_template(name)) {
+    if !write_if_absent(name + "/tpkg.config.td", new_pkg_template(name)) {
         failed = failed + 1
     }
     if !write_if_absent(name + "/src/main.tie", new_main_template(name)) {
@@ -312,18 +312,18 @@ func dir_exists(name: string) -> bool {
     return len(entries) > 0
 }
 
-// new 脚手架 tie.pkg 模板（p.9.2.5；name 注入，main 指向 src/main.tie）。
+// new 脚手架 tpkg.config.td 模板（p.9.2.5；name 注入，main 指向 src/main.tie）。
 func new_pkg_template(name: string) -> string {
-    return "// tie.pkg\n" +
+    return "// tpkg.config.td\n" +
            "// tie:data\n" +
            "[\n" +
            "    \"name\": \"" + name + "\",\n" +
            "    \"version\": \"0.1.0\",\n" +
            "    \"description\": \"tie 项目\",\n" +
-           "    \"role\": \"logic\",\n" +
+           "    \"kind\": \"cli\",\n" +
            "    \"main\": \"src/main.tie\",\n" +
            "    \"author\": \"\",\n" +
-           "    \"license\": \"TPL 2.0\",\n" +
+           "    \"license\": \"TPL-2.3\",\n" +
            "    \"dependencies\": [\n" +
            "    ],\n" +
            "]\n"
@@ -379,11 +379,11 @@ func cmd_add() -> i64 {
         print_err("[pkg]         tie add demo@git+https://host/repo.git  （git 源）\n")
         return 1
     }
-    if !file_exists("tie.pkg") {
-        print_err("[pkg] 未找到 tie.pkg（请先 tie init <项目名>）\n")
+    if !file_exists("tpkg.config.td") {
+        print_err("[pkg] 未找到 tpkg.config.td（请先 tie init <项目名>）\n")
         return 1
     }
-    var src = file_read("tie.pkg")
+    var src = file_read("tpkg.config.td")
     var name = add_name(spec_arg)
     if name == "" {
         print_err("[pkg] 无法解析包名: " + spec_arg + "\n")
@@ -413,13 +413,13 @@ func cmd_add() -> i64 {
         print_err("[pkg] 依赖已存在: " + name + "（可先 tie remove " + name + "）\n")
         return 1
     }
-    // 写入 tie.pkg
+    // 写入 tpkg.config.td
     var updated = mf.add_dep(src, name, spec)
-    if file_write("tie.pkg", updated) {
+    if file_write("tpkg.config.td", updated) {
         println("[pkg] 已添加依赖 " + name + " @ " + spec)
         return 0
     }
-    print_err("[pkg] 写入 tie.pkg 失败\n")
+    print_err("[pkg] 写入 tpkg.config.td 失败\n")
     return 1
 }
 
@@ -486,33 +486,33 @@ func cmd_remove() -> i64 {
         print_err("[pkg] 用法: tie remove <包名>\n")
         return 1
     }
-    if !file_exists("tie.pkg") {
-        print_err("[pkg] 未找到 tie.pkg\n")
+    if !file_exists("tpkg.config.td") {
+        print_err("[pkg] 未找到 tpkg.config.td\n")
         return 1
     }
-    var src = file_read("tie.pkg")
+    var src = file_read("tpkg.config.td")
     var updated = mf.remove_dep(src, name)
     // 文本未变 → 依赖不存在
     if updated == src {
         print_err("[pkg] 依赖不存在: " + name + "\n")
         return 1
     }
-    if file_write("tie.pkg", updated) {
+    if file_write("tpkg.config.td", updated) {
         println("[pkg] 已移除依赖 " + name)
         return 0
     }
-    print_err("[pkg] 写入 tie.pkg 失败\n")
+    print_err("[pkg] 写入 tpkg.config.td 失败\n")
     return 1
 }
 
 // ================= tie install：安装依赖 =================
 
 func cmd_install() -> i64 {
-    if !file_exists("tie.pkg") {
-        print_err("[pkg] 未找到 tie.pkg（请先 tie init <项目名>）\n")
+    if !file_exists("tpkg.config.td") {
+        print_err("[pkg] 未找到 tpkg.config.td（请先 tie init <项目名>）\n")
         return 1
     }
-    var src = file_read("tie.pkg")
+    var src = file_read("tpkg.config.td")
     // 依赖名与 spec 各为逗号分隔序列（规避表参数限制）
     var names = mf.dep_names(src)
     if names == "" {
@@ -528,7 +528,7 @@ func cmd_install() -> i64 {
     println("[pkg] 安装依赖到 .tie/deps/ ...")
     var lock_text: string = ""
     var from_lock: bool = false
-    // 幂等：tie.lock 存在且与当前 tie.pkg 直接依赖一致 → 直接按锁文件恢复（不重新拉取）
+    // 幂等：tie.lock 存在且与当前 tpkg.config.td 直接依赖一致 → 直接按锁文件恢复（不重新拉取）
     if dp.lock_exists() {
         var lt = dp.lock_read()
         if dp.lock_valid(lt, src) {
@@ -602,11 +602,11 @@ func verify_installed(lock_text: string) -> i64 {
 
 func cmd_update() -> i64 {
     var pkg = arg_string(1)
-    if !file_exists("tie.pkg") {
-        print_err("[pkg] 未找到 tie.pkg（请先 tie init <项目名>）\n")
+    if !file_exists("tpkg.config.td") {
+        print_err("[pkg] 未找到 tpkg.config.td（请先 tie init <项目名>）\n")
         return 1
     }
-    var src = file_read("tie.pkg")
+    var src = file_read("tpkg.config.td")
     var names = mf.dep_names(src)
     if names == "" {
         println("[pkg] 无依赖，无需更新")
@@ -647,11 +647,11 @@ func cmd_update() -> i64 {
 // ================= tie publish / search / info =================
 
 func cmd_publish() -> i64 {
-    if !file_exists("tie.pkg") {
-        print_err("[pkg] 未找到 tie.pkg（请先 tie init <项目名>）\n")
+    if !file_exists("tpkg.config.td") {
+        print_err("[pkg] 未找到 tpkg.config.td（请先 tie init <项目名>）\n")
         return 1
     }
-    var src = file_read("tie.pkg")
+    var src = file_read("tpkg.config.td")
     var name = mf.field(src, "name")
     var version = mf.field(src, "version")
     var main_file = mf.field(src, "main")
@@ -659,18 +659,22 @@ func cmd_publish() -> i64 {
         main_file = "main.tie"
     }
     var exports = mf.field(src, "exports")
+    var kind = mf.field(src, "kind")
+    if kind == "" {
+        println("[pkg] 提示: tpkg.config.td 缺 kind 字段（规范要求；见 tpkg-spec）")
+    }
     return pb.publish(name, version, main_file, exports)
 }
 
 // S3.2：tie pack —— 打包分发单元（tieir + signature + .tpkg）。
-// 多文件包（L1c）：tie.pkg 的 exports 字段声明附加导出入口（逗号分隔），
+// 多文件包（L1c）：tpkg.config.td 的 exports 字段声明附加导出入口（逗号分隔），
 // 包内模块互相 import 私有，对外只暴露入口声明面。
 func cmd_pack() -> i64 {
-    if !file_exists("tie.pkg") {
-        print_err("[pkg] 未找到 tie.pkg（请先 tie init <项目名>）\n")
+    if !file_exists("tpkg.config.td") {
+        print_err("[pkg] 未找到 tpkg.config.td（请先 tie init <项目名>）\n")
         return 1
     }
-    var src = file_read("tie.pkg")
+    var src = file_read("tpkg.config.td")
     var name = mf.field(src, "name")
     var version = mf.field(src, "version")
     var main_file = mf.field(src, "main")
@@ -678,6 +682,10 @@ func cmd_pack() -> i64 {
         main_file = "main.tie"
     }
     var exports = mf.field(src, "exports")
+    var kind = mf.field(src, "kind")
+    if kind == "" {
+        println("[pkg] 提示: tpkg.config.td 缺 kind 字段（规范要求；见 tpkg-spec）")
+    }
     return pk.pack(name, version, main_file, exports)
 }
 
@@ -707,13 +715,13 @@ func cmd_info() -> i64 {
 
 // ================= tie build / tie run =================
 
-// 读 tie.pkg 的 main 字段（缺省 main.tie）；清单缺失返回空串。
+// 读 tpkg.config.td 的 main 字段（缺省 main.tie）；清单缺失返回空串。
 func main_of_pkg() -> string {
-    if !file_exists("tie.pkg") {
-        print_err("[pkg] 未找到 tie.pkg（请先 tie init <项目名>）\n")
+    if !file_exists("tpkg.config.td") {
+        print_err("[pkg] 未找到 tpkg.config.td（请先 tie init <项目名>）\n")
         return ""
     }
-    var src = file_read("tie.pkg")
+    var src = file_read("tpkg.config.td")
     var main_file = mf.field(src, "main")
     if main_file == "" {
         main_file = "main.tie"

@@ -8,7 +8,7 @@ type tie<class>
 //       * git 源（git+... / 含 .git / ssh 形式）：fetch_git 浅克隆；
 //       * registry 源（裸版本/约束）：resolve_registry_version 选版本 +
 //         fetch_registry 下载 .tpkg 并解包（tzpx.extract）。
-//   - **依赖解析**（resolve）：BFS + 队头指针（无递归）递归读取依赖的 tie.pkg
+//   - **依赖解析**（resolve）：BFS + 队头指针（无递归）递归读取依赖的 tpkg.config.td
 //     的 dependencies → 去重（同名取满足全部约束的最高版本，registry 冲突时
 //     按约束集重选）→ 冲突检测（无满足版本报错）；深度限制 3 防环；
 //     解析结果生成 tie.lock 文本（委托 lock 模块）。
@@ -205,7 +205,7 @@ namespace deps {
         return lk.write(lock_text)
     }
 
-    // 校验锁文件与当前 tie.pkg 直接依赖是否一致（幂等恢复前提）。
+    // 校验锁文件与当前 tpkg.config.td 直接依赖是否一致（幂等恢复前提）。
     pub func lock_valid(lock_text: string, pkg_src: string) -> bool {
         return lk.valid(lock_text, pkg_src)
     }
@@ -215,9 +215,9 @@ namespace deps {
         return lk.names(lock_text)
     }
 
-    // ================= 读取依赖的 tie.pkg（自备轻量扫描，不重复 import manifest） =================
+    // ================= 读取依赖的 tpkg.config.td（自备轻量扫描，不重复 import manifest） =================
 
-    // 扫描依赖包 tie.pkg 的 dependencies 数组：want_name=true 取包名序列，
+    // 扫描依赖包 tpkg.config.td 的 dependencies 数组：want_name=true 取包名序列，
     // false 取 spec 序列（逗号分隔字符串序列）。
     func scan_deps(src: string, want_name: bool) -> string {
         var out: string = ""
@@ -275,7 +275,7 @@ namespace deps {
         return out
     }
 
-    // 依赖包 tie.pkg 的依赖名/依赖 spec 序列（与 manifest.dep_names/specs 同语义）。
+    // 依赖包 tpkg.config.td 的依赖名/依赖 spec 序列（与 manifest.dep_names/specs 同语义）。
     func dep_names_of(pkg_src: string) -> string {
         return scan_deps(pkg_src, true)
     }
@@ -409,7 +409,7 @@ namespace deps {
             var src: string = ""
             var pkg_dir: string = ""
 
-            // 1) 按源类型解析具体版本 + 定位包目录（读其 tie.pkg 用）
+            // 1) 按源类型解析具体版本 + 定位包目录（读其 tpkg.config.td 用）
             if starts_with(spec, "path:") {
                 var rel = slice(spec, 5, len(spec))
                 var full = rel
@@ -532,9 +532,9 @@ namespace deps {
                 table_push(c_specs, spec)
             }
 
-            // 4) 递归读取该依赖的 tie.pkg（深度限制 3 防环）
+            // 4) 递归读取该依赖的 tpkg.config.td（深度限制 3 防环）
             if depth < 3 {
-                var pkg_file = path_join(pkg_dir, "tie.pkg")
+                var pkg_file = path_join(pkg_dir, "tpkg.config.td")
                 if file_exists(pkg_file) {
                     var pkg_src = file_read(pkg_file)
                     var cnames = dep_names_of(pkg_src)
@@ -640,11 +640,11 @@ namespace deps {
             return copy_to(dest, p)
         }
         // git 源：缓存命中则复用，否则浅克隆
-        // 注：fetch_git 克隆后会清掉 .git 子目录，缓存存在性用 tie.pkg 文件探测
+        // 注：fetch_git 克隆后会清掉 .git 子目录，缓存存在性用 tpkg.config.td 文件探测
         //（file_exists 编译路径对目录恒 false，不能直接判断目录本身）
         if ft.is_git(src) {
             var staging = ".tie/cache/git/" + name
-            if !file_exists(staging + "/tie.pkg") {
+            if !file_exists(staging + "/tpkg.config.td") {
                 if !ft.fetch_git(ft.git_url(src), ft.git_tag(src), staging) {
                     print_err("[pkg]  git 拉取失败: " + src + "\n")
                     return false
@@ -655,7 +655,7 @@ namespace deps {
         }
         // registry 源：source 为完整 tar 包 URL；缓存命中则复用，否则下载解压
         var staging = ".tie/cache/registry/" + name + "/" + ver
-        if !file_exists(staging + "/tie.pkg") {
+        if !file_exists(staging + "/tpkg.config.td") {
             var dir = ".tie/cache/registry/" + name
             if !mkdir_all(dir) {
                 print_err("[pkg]  创建目录失败: " + dir + "\n")

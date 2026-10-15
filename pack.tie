@@ -1,9 +1,9 @@
 type tie<class>
 // pack.tie —— S3.2：打包模块（多文件包 L1c + tieir 分发 + 签名 P5c / p.9.2.2 转正）
 //
-// 职责：`tie pack` 把当前项目打包为**分发单元**（源码 + tie.pkg + .tieir +
+// 职责：`tie pack` 把当前项目打包为**分发单元**（源码 + tpkg.config.td + .tieir +
 // signature），供 path/git/registry 三种源安装消费：
-//   1. 读 tie.pkg（name/version/main/exports 由 main 传入，本模块不重复解析）；
+//   1. 读 tpkg.config.td（name/version/main/exports 由 main 传入，本模块不重复解析）；
 //   2. 校验清单字段（name/version/main 必备；exports 可选 = 附加导出入口）；
 //   3. 编译入口文件为 .tieir（调用 tiec --tieir-out，S3.2 新增编译器选项），
 //      多文件包（L1c）：包内模块互相 import 私有，对外只暴露入口声明面；
@@ -217,20 +217,20 @@ namespace pack {
 
     // ================= tie pack 主流程 =================
 
-    // 打包：编译 tieir + 签名 + tar.gz。name/version/main 由 main 从 tie.pkg
+    // 打包：编译 tieir + 签名 + tar.gz。name/version/main 由 main 从 tpkg.config.td
     // 读出传入；exports 为附加导出入口（逗号分隔，可为空串）。
     pub func pack(name: string, version: string, main_file: string, exports: string) -> i64 {
         // 1) 校验清单字段
         if name == "" {
-            print_err("[pkg] tie.pkg 缺少 name 字段\n")
+            print_err("[pkg] tpkg.config.td 缺少 name 字段\n")
             return 1
         }
         if version == "" {
-            print_err("[pkg] tie.pkg 缺少 version 字段\n")
+            print_err("[pkg] tpkg.config.td 缺少 version 字段\n")
             return 1
         }
         if main_file == "" {
-            print_err("[pkg] tie.pkg 缺少 main 字段\n")
+            print_err("[pkg] tpkg.config.td 缺少 main 字段\n")
             return 1
         }
         if !is_semver(version) {
