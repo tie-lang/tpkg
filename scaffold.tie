@@ -1,4 +1,5 @@
 type tie<class>
+import "./license.tie" as lic
 // scaffold.tie —— 多模板脚手架（35 官方档 + 用户模板双层）
 // ============================================================================
 // 官方档：内置只读（下表数据，随 tpkg 分发、不可修改；kind 与包与项目规范第 4 章
@@ -23,6 +24,9 @@ type tie<class>
 
 // 全局标志：sc_fill_missing 模式（已存在文件跳过；单线程 CLI，无并发）。
 var g_sc_only_absent: bool = false
+
+// 生成用许可证标识（--license；默认官方 TPL-2.3；未知标识由 license 模块引用式兜底）。
+var g_sc_license_id: string = "TPL-2.3"
 
 namespace scaffold {
 
@@ -73,6 +77,11 @@ pub func sc_def(kind: string) -> string {
     if kind == "animation" { return "src/main.tie|src,scenes,assets,target" }
     if kind == "3d" { return "src/main.tie|src,scenes,assets,target" }
     return ""
+}
+
+// 设置生成用许可证标识。
+pub func sc_set_license(id: string) {
+    g_sc_license_id = id
 }
 
 pub func sc_kind_valid(kind: string) -> bool {
@@ -364,12 +373,6 @@ func sc_readme(name: string, kind: string, dirs: table<string>, vnotes: table<st
     sb_append(sb, "- 构建产物进 `target/`；本地材料进 `_local_only/`（不入库）。\n")
     sb_append(sb, "- 规范：tie 生态包与项目规范（tpkg-spec）。\n")
     return sb_build(sb)
-}
-
-func sc_license() -> string {
-    return "本仓库按 Tie Public License v2.3（TPL-2.3）授权发布。\n" +
-           "全文见 https://github.com/tie-lang/tpkg（或 tie 生态许可证仓）。\n" +
-           "EN: Released under Tie Public License v2.3 (TPL-2.3), full text at the URL above.\n"
 }
 
 func sc_gitignore() -> string {
@@ -726,7 +729,7 @@ func sc_impl(dir: string, name: string, kind: string, variants: table<string>) -
     if !sc_write(dir + "/README.md", sc_readme(name, kind, dirs, vnotes)) {
         failed = failed + 1
     }
-    if !sc_write(dir + "/LICENSE", sc_license()) {
+    if !sc_write(dir + "/LICENSE", lic.lic_text(g_sc_license_id)) {
         failed = failed + 1
     }
     if !sc_write(dir + "/.gitignore", sc_gitignore()) {

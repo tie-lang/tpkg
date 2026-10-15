@@ -44,6 +44,7 @@ import "./publish.tie" as pb
 import "./pack.tie" as pk
 import "./search.tie" as sr
 import "./scaffold.tie" as sc
+import "./license.tie" as lic
 
 // ================= 入口：子命令分派 =================
 
@@ -67,6 +68,9 @@ func main() -> i64 {
     }
     if cmd == "template" {
         return cmd_template()
+    }
+    if cmd == "license" {
+        return cmd_license()
     }
     if cmd == "add" {
         return cmd_add()
@@ -133,6 +137,7 @@ func help_text() -> string {
            "  tie search <关键字>    搜索注册表（TIE_REGISTRY 可指定基址）\n" +
            "  tie info <包名>        查询注册表包信息\n" +
            "  tie template list      列出官方档与用户模板\n" +
+           "  tie license <子命令>   许可证：detect 识别 / check 校验 / list 大全\n" +
            "  tie help               显示本帮助\n" +
            "\n" +
            "依赖写法:\n" +
@@ -155,11 +160,14 @@ func cmd_init() -> i64 {
     }
     var kind = "cli"
     var variants = table_new_string()
+    var licid: string = ""
     var ai: i64 = 2
     while ai < arg_count() {
         var a = arg_string(ai)
         if mf.starts_with(a, "--kind=") {
             kind = mf.slice(a, 7, len(a))
+        } else if mf.starts_with(a, "--license=") {
+            licid = mf.slice(a, 10, len(a))
         } else if mf.starts_with(a, "--") && len(a) > 2 {
             table_push(variants, mf.slice(a, 2, len(a)))
         }
@@ -171,6 +179,12 @@ func cmd_init() -> i64 {
     }
     if !variants_ok(kind, variants) {
         return 1
+    }
+    if licid != "" {
+        if !lic.lic_known(licid) {
+            println("[pkg] 提示: 未知许可证标识 " + licid + "（将写入引用式；tie license list 查看内置大全）")
+        }
+        sc.sc_set_license(licid)
     }
     if !mkdir_all(name) {
         print_err("[pkg] 创建目录失败: " + name + "\n")
@@ -193,6 +207,7 @@ func cmd_new() -> i64 {
     var kind: string = ""
     var tpl: string = ""
     var want_git: bool = false
+    var licid: string = ""
     var variants = table_new_string()
     var i: i64 = 1
     while i < arg_count() {
@@ -201,6 +216,8 @@ func cmd_new() -> i64 {
             kind = mf.slice(a, 7, len(a))
         } else if mf.starts_with(a, "--template=") {
             tpl = mf.slice(a, 11, len(a))
+        } else if mf.starts_with(a, "--license=") {
+            licid = mf.slice(a, 10, len(a))
         } else if a == "--git" {
             want_git = true
         } else if mf.starts_with(a, "--") && len(a) > 2 {
@@ -216,6 +233,7 @@ func cmd_new() -> i64 {
         print_err("[pkg]         tie new my-api  --kind=backend\n")
         print_err("[pkg]         tie new my-lib  --kind=lib\n")
         print_err("[pkg]         tie new my-proj --template=our-team\n")
+        print_err("[pkg]         tie new my-lib  --kind=lib --license=MIT\n")
         print_err("[pkg]         tie template list（列出官方档与用户模板）\n")
         return 1
     }
@@ -267,6 +285,12 @@ func cmd_new() -> i64 {
         if !variants_ok(kind, variants) {
             return 1
         }
+        if licid != "" {
+            if !lic.lic_known(licid) {
+                println("[pkg] 提示: 未知许可证标识 " + licid + "（将写入引用式；tie license list 查看内置大全）")
+            }
+            sc.sc_set_license(licid)
+        }
         failed = sc.sc_generate_v(name, name, kind, variants)
         if failed == 0 {
             var vtail = ""
@@ -290,6 +314,46 @@ func cmd_new() -> i64 {
     }
     println("[pkg] 下一步: cd " + name)
     return 0
+}
+
+// tpkg license —— 许可证识别 / 校验 / 大全（规范 7.3）。
+func cmd_license() -> i64 {
+    var sub = arg_string(1)
+    if sub == "" || sub == "detect" {
+        if !file_exists("LICENSE") {
+            print_err("[pkg] 未找到 LICENSE（当前目录）\n")
+            return 1
+        }
+        var src = file_read("LICENSE")
+        var d = lic.lic_detect(src)
+        if d.0 == "Custom" {
+            println("[pkg] 识别结果: 自定义/未识别（不在内置大全中）")
+            return 2
+        }
+        println("[pkg] 识别结果: " + d.0 + "（置信度 " + to_string(d.1) + "）")
+        return 0
+    }
+    if sub == "check" {
+        if !file_exists("tpkg.config.td") {
+            print_err("[pkg] 未找到 tpkg.config.td（请在项目根执行）\n")
+            return 1
+        }
+        var msrc = file_read("tpkg.config.td")
+        var declared = mf.field(msrc, "license")
+        return lic.lic_check_report(declared, "LICENSE")
+    }
+    if sub == "list" {
+        println("[pkg] 内置许可证大全（tie license detect 可识别；注入见 new --license=<id>）：")
+        var t = lic.lic_list()
+        var i: i64 = 0
+        while i < len(t) {
+            println("  " + t[i])
+            i = i + 1
+        }
+        return 0
+    }
+    print_err("[pkg] 用法: tie license detect | check | list\n")
+    return 1
 }
 
 // tpkg template —— 模板清单（官方 35 档 + 用户模板）。
@@ -686,6 +750,9 @@ func cmd_publish() -> i64 {
     if main_file == "" {
         main_file = "main.tie"
     }
+    // 许可证一致性（规范 7.3：以 LICENSE 为准；提示不拦）
+    var decl_lic2 = mf.field(src, "license")
+    var licrc2 = lic.lic_check_report(decl_lic2, "LICENSE")
     var exports = mf.field(src, "exports")
     return pb.publish(name, version, main_file, exports)
 }
@@ -712,6 +779,9 @@ func cmd_pack() -> i64 {
     if main_file == "" {
         main_file = "main.tie"
     }
+    // 许可证一致性（规范 7.3：以 LICENSE 为准；提示不拦）
+    var decl_lic = mf.field(src, "license")
+    var licrc = lic.lic_check_report(decl_lic, "LICENSE")
     var exports = mf.field(src, "exports")
     return pk.pack(name, version, main_file, exports)
 }

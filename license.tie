@@ -1,0 +1,494 @@
+type tie<class>
+// license.tie —— tpkg 许可证识别模块（规范 7.3：识别 detect / 校验 check / 注入）
+// ============================================================================
+// 识别：LICENSE 正文 → 特征短语匹配（大小写敏感、按特异性排序首中即回）→ SPDX 标识
+//   （命中全部特征 → 置信度 90；家族部分命中 → 60-85；未命中 → "Custom"）。
+// 注入：lic_text(spdx) → 内嵌逐字全文（TPL-2.3 / MIT / ISC / BSD-2 / BSD-3 / Unlicense /
+//   WTFPL / Zlib），其余成熟集 → 官方引用式（SPDX 页面）。
+// 校验：lic_check_report(declared, path) → 清单声明 vs LICENSE 实况（规范 7.2：
+//   不一致以 LICENSE 为准并给出提示）。
+// TPL 权威线上地址：https://tpl.franj2.top/
+// ============================================================================
+
+import "./license_tpl.tie" as litpl
+import "./license_spdx.tie" as spdx
+
+namespace lic {
+
+// ============================================================================
+// 一、文本包含（朴素子串；UTF-8 文本域）
+// ============================================================================
+
+pub func lic_contains(s: string, sub: string) -> bool {
+    var n: i64 = len(s)
+    var m: i64 = len(sub)
+    if m == 0 {
+        return true
+    }
+    if m > n {
+        return false
+    }
+    var i: i64 = 0
+    while i + m <= n {
+        var hit = true
+        var k: i64 = 0
+        while k < m {
+            if str_char(s, i + k) != str_char(sub, k) {
+                hit = false
+                k = m
+            } else {
+                k = k + 1
+            }
+        }
+        if hit {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// ============================================================================
+// 二、识别（detect）
+// ============================================================================
+
+// 返回 (SPDX 标识, 置信度 0-100)。未识别 → ("Custom", 0)。
+pub func lic_detect(src: string) -> (string, i64) {
+    // ---- tie 官方 ----
+    if lic_contains(src, "TIE PUBLIC LICENSE") {
+        if lic_contains(src, "Version 2.3") {
+            return ("TPL-2.3", 95)
+        }
+        return ("TPL-2.3", 60)
+    }
+    // ---- GPL 家族（全大写标题；AGPL 先于 GPL） ----
+    if lic_contains(src, "GNU AFFERO GENERAL PUBLIC LICENSE") {
+        return ("AGPL-3.0", 90)
+    }
+    if lic_contains(src, "GNU LESSER GENERAL PUBLIC LICENSE") {
+        if lic_contains(src, "Version 3") {
+            return ("LGPL-3.0", 90)
+        }
+        if lic_contains(src, "Version 2.1") {
+            return ("LGPL-2.1", 90)
+        }
+        return ("LGPL-2.1", 60)
+    }
+    if lic_contains(src, "GNU GENERAL PUBLIC LICENSE") {
+        if lic_contains(src, "Version 3") {
+            return ("GPL-3.0", 90)
+        }
+        if lic_contains(src, "Version 2") {
+            return ("GPL-2.0", 90)
+        }
+        return ("GPL-2.0", 60)
+    }
+    if lic_contains(src, "GNU Free Documentation License") {
+        if lic_contains(src, "Version 1.3") {
+            return ("GFDL-1.3", 90)
+        }
+        return ("GFDL-1.3", 60)
+    }
+    // ---- 主要软件许可证 ----
+    if lic_contains(src, "Apache License") && lic_contains(src, "Version 2.0") {
+        return ("Apache-2.0", 90)
+    }
+    if lic_contains(src, "Mozilla Public License Version 2.0") {
+        return ("MPL-2.0", 90)
+    }
+    if lic_contains(src, "Eclipse Public License") && lic_contains(src, "2.0") {
+        return ("EPL-2.0", 90)
+    }
+    if lic_contains(src, "COMMON DEVELOPMENT AND DISTRIBUTION LICENSE") {
+        return ("CDDL-1.0", 90)
+    }
+    if lic_contains(src, "Boost Software License") {
+        return ("BSL-1.0", 90)
+    }
+    if lic_contains(src, "The Artistic License 2.0") {
+        return ("Artistic-2.0", 90)
+    }
+    if lic_contains(src, "European Union Public Licence") {
+        return ("EUPL-1.2", 85)
+    }
+    if lic_contains(src, "PostgreSQL License") || lic_contains(src, "PostgreSQL Database Management System") {
+        return ("PostgreSQL", 85)
+    }
+    if lic_contains(src, "PYTHON SOFTWARE FOUNDATION LICENSE") {
+        return ("Python-2.0", 90)
+    }
+    if lic_contains(src, "University of Illinois/NCSA Open Source License") {
+        return ("NCSA", 90)
+    }
+    if lic_contains(src, "X Consortium") {
+        return ("X11", 85)
+    }
+    if lic_contains(src, "Microsoft Public License") {
+        return ("MS-PL", 90)
+    }
+    // ---- 字体 ----
+    if lic_contains(src, "SIL OPEN FONT LICENSE") {
+        return ("OFL-1.1", 90)
+    }
+    if lic_contains(src, "UBUNTU FONT LICENCE") {
+        return ("UFL", 90)
+    }
+    if lic_contains(src, "LaTeX Project Public License") {
+        return ("LPPL-1.3c", 85)
+    }
+    // ---- 数据 ----
+    if lic_contains(src, "ODC Open Database License") {
+        return ("ODbL-1.0", 90)
+    }
+    if lic_contains(src, "ODC Attribution License") {
+        return ("ODC-By-1.0", 90)
+    }
+    if lic_contains(src, "ODC Public Domain Dedication") {
+        return ("PDDL-1.0", 90)
+    }
+    // ---- 硬件 ----
+    if lic_contains(src, "CERN Open Hardware Licence") {
+        if lic_contains(src, "Strongly Reciprocal") {
+            return ("CERN-OHL-S-2.0", 90)
+        }
+        if lic_contains(src, "Weakly Reciprocal") {
+            return ("CERN-OHL-W-2.0", 90)
+        }
+        if lic_contains(src, "Permissive") {
+            return ("CERN-OHL-P-2.0", 90)
+        }
+        return ("CERN-OHL-S-2.0", 60)
+    }
+    if lic_contains(src, "TAPR Open Hardware License") {
+        return ("TAPR-OHL-1.0", 90)
+    }
+    // ---- 公共领域 ----
+    if lic_contains(src, "DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE") {
+        return ("WTFPL", 90)
+    }
+    if lic_contains(src, "This is free and unencumbered software released into the public domain") {
+        return ("Unlicense", 90)
+    }
+    // ---- Creative Commons（组合先于父类） ----
+    if lic_contains(src, "CC0 1.0 Universal") {
+        return ("CC0-1.0", 90)
+    }
+    if lic_contains(src, "Creative Commons Legal Code") && lic_contains(src, "CC0 1.0") {
+        return ("CC0-1.0", 85)
+    }
+    if lic_contains(src, "Attribution-NonCommercial-ShareAlike 4.0") {
+        return ("CC-BY-NC-SA-4.0", 90)
+    }
+    if lic_contains(src, "Attribution-NonCommercial-NoDerivatives 4.0") {
+        return ("CC-BY-NC-ND-4.0", 90)
+    }
+    if lic_contains(src, "Attribution-ShareAlike 4.0") {
+        return ("CC-BY-SA-4.0", 90)
+    }
+    if lic_contains(src, "Attribution-NoDerivatives 4.0") {
+        return ("CC-BY-ND-4.0", 90)
+    }
+    if lic_contains(src, "Attribution-NonCommercial 4.0") {
+        return ("CC-BY-NC-4.0", 90)
+    }
+    if lic_contains(src, "Attribution 4.0 International") {
+        return ("CC-BY-4.0", 90)
+    }
+    // ---- 短式许可（BSD / ISC / MIT 系；组内按特异性） ----
+    if lic_contains(src, "This software is provided 'as-is'") {
+        return ("Zlib", 90)
+    }
+    if lic_contains(src, "Redistribution and use in source and binary forms") {
+        if lic_contains(src, "neither the name") {
+            return ("BSD-3-Clause", 90)
+        }
+        if lic_contains(src, "this list of conditions and the following disclaimer") {
+            return ("BSD-2-Clause", 90)
+        }
+        return ("BSD-3-Clause", 60)
+    }
+    if lic_contains(src, "for any purpose with or without fee is hereby granted") {
+        if lic_contains(src, "provided that the above copyright notice") {
+            return ("ISC", 90)
+        }
+        return ("0BSD", 85)
+    }
+    if lic_contains(src, "Permission is hereby granted, free of charge") {
+        if lic_contains(src, "The above copyright notice") {
+            return ("MIT", 90)
+        }
+        return ("MIT-0", 80)
+    }
+    return ("Custom", 0)
+}
+
+// ============================================================================
+// 三、成熟集清单（规范 7.4）
+// ============================================================================
+
+pub func lic_list() -> table<string> {
+    // 基准 = SPDX License List 官方全量（成熟业界标准列表）；
+    // 附加生态既有条目（SPDX 未收录者：UFL、TPL）。
+    var t = spdx.spdx_ids()
+    table_push(t, "UFL")
+    table_push(t, "TPL-2.3")
+    return t
+}
+
+// 识别特征的覆盖集（detect 可识别的许可证；其余全表条目以声明/引用式支持）。
+pub func lic_known(id: string) -> bool {
+    var t = lic_list()
+    var i: i64 = 0
+    while i < len(t) {
+        if t[i] == id {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// 权威 URL（TPL 指向官方站；其余 SPDX 页面）。
+pub func lic_url(id: string) -> string {
+    if id == "TPL-2.3" {
+        return "https://tpl.franj2.top/"
+    }
+    if id == "UFL" {
+        return "https://ubuntu.com/legal/font-licence"
+    }
+    return "https://spdx.org/licenses/" + id + ".html"
+}
+
+// ============================================================================
+// 四、注入（lic_text：内嵌逐字全文 / 官方引用式）
+// ============================================================================
+
+pub func lic_text(spdx: string) -> string {
+    if spdx == "TPL-2.3" {
+        return litpl.tpl_full()
+    }
+    if spdx == "MIT" {
+        return lic_mit()
+    }
+    if spdx == "ISC" {
+        return lic_isc()
+    }
+    if spdx == "BSD-2-Clause" {
+        return lic_bsd2()
+    }
+    if spdx == "BSD-3-Clause" {
+        return lic_bsd3()
+    }
+    if spdx == "Unlicense" {
+        return lic_unlicense()
+    }
+    if spdx == "WTFPL" {
+        return lic_wtfpl()
+    }
+    if spdx == "Zlib" {
+        return lic_zlib()
+    }
+    // 引用式（已知但无内嵌全文；以及未知/自定义标识）
+    return "本作品按 " + spdx + " 授权发布（全文与条款以官方发布为准）：\n" +
+           lic_url(spdx) + "\n" +
+           "EN: Released under " + spdx + "; the official full text is at the URL above.\n"
+}
+
+func lic_mit() -> string {
+    return "MIT License\n" +
+           "\n" +
+           "Copyright (c) <year> <author>\n" +
+           "\n" +
+           "Permission is hereby granted, free of charge, to any person obtaining a copy\n" +
+           "of this software and associated documentation files (the \"Software\"), to deal\n" +
+           "in the Software without restriction, including without limitation the rights\n" +
+           "to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n" +
+           "copies of the Software, and to permit persons to whom the Software is\n" +
+           "furnished to do so, subject to the following conditions:\n" +
+           "\n" +
+           "The above copyright notice and this permission notice shall be included in all\n" +
+           "copies or substantial portions of the Software.\n" +
+           "\n" +
+           "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n" +
+           "IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n" +
+           "FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n" +
+           "AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n" +
+           "LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n" +
+           "OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n" +
+           "SOFTWARE.\n"
+}
+
+func lic_isc() -> string {
+    return "ISC License\n" +
+           "\n" +
+           "Copyright (c) <year> <author>\n" +
+           "\n" +
+           "Permission to use, copy, modify, and/or distribute this software for any\n" +
+           "purpose with or without fee is hereby granted, provided that the above\n" +
+           "copyright notice and this permission notice appear in all copies.\n" +
+           "\n" +
+           "THE SOFTWARE IS PROVIDED \"AS IS\" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH\n" +
+           "REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY\n" +
+           "AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,\n" +
+           "INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM\n" +
+           "LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR\n" +
+           "OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR\n" +
+           "PERFORMANCE OF THIS SOFTWARE.\n"
+}
+
+func lic_bsd2() -> string {
+    return "BSD 2-Clause License\n" +
+           "\n" +
+           "Copyright (c) <year> <author>\n" +
+           "All rights reserved.\n" +
+           "\n" +
+           "Redistribution and use in source and binary forms, with or without\n" +
+           "modification, are permitted provided that the following conditions are met:\n" +
+           "\n" +
+           "1. Redistributions of source code must retain the above copyright notice, this\n" +
+           "   list of conditions and the following disclaimer.\n" +
+           "\n" +
+           "2. Redistributions in binary form must reproduce the above copyright notice,\n" +
+           "   this list of conditions and the following disclaimer in the documentation\n" +
+           "   and/or other materials provided with the distribution.\n" +
+           "\n" +
+           "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\"\n" +
+           "AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE\n" +
+           "IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE\n" +
+           "DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE\n" +
+           "FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL\n" +
+           "DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR\n" +
+           "SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER\n" +
+           "CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,\n" +
+           "OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\n" +
+           "OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n"
+}
+
+func lic_bsd3() -> string {
+    return "BSD 3-Clause License\n" +
+           "\n" +
+           "Copyright (c) <year> <author>\n" +
+           "All rights reserved.\n" +
+           "\n" +
+           "Redistribution and use in source and binary forms, with or without\n" +
+           "modification, are permitted provided that the following conditions are met:\n" +
+           "\n" +
+           "1. Redistributions of source code must retain the above copyright notice, this\n" +
+           "   list of conditions and the following disclaimer.\n" +
+           "\n" +
+           "2. Redistributions in binary form must reproduce the above copyright notice,\n" +
+           "   this list of conditions and the following disclaimer in the documentation\n" +
+           "   and/or other materials provided with the distribution.\n" +
+           "\n" +
+           "3. Neither the name of the copyright holder nor the names of its\n" +
+           "   contributors may be used to endorse or promote products derived from\n" +
+           "   this software without specific prior written permission.\n" +
+           "\n" +
+           "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\"\n" +
+           "AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE\n" +
+           "IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE\n" +
+           "DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE\n" +
+           "FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL\n" +
+           "DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR\n" +
+           "SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER\n" +
+           "CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,\n" +
+           "OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\n" +
+           "OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n"
+}
+
+func lic_unlicense() -> string {
+    return "This is free and unencumbered software released into the public domain.\n" +
+           "\n" +
+           "Anyone is free to copy, modify, publish, use, compile, sell, or\n" +
+           "distribute this software, either in source code form or as a compiled\n" +
+           "binary, for any purpose, commercial or non-commercial, and by any\n" +
+           "means.\n" +
+           "\n" +
+           "In jurisdictions that recognize copyright laws, the author or authors\n" +
+           "of this software dedicate any and all copyright interest in the\n" +
+           "software to the public domain. We make this dedication for the benefit\n" +
+           "of the public at large and to the detriment of our heirs and\n" +
+           "successors. We intend this dedication to be an overt act of\n" +
+           "relinquishment in perpetuity of all present and future rights to this\n" +
+           "software under copyright law.\n" +
+           "\n" +
+           "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\n" +
+           "EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\n" +
+           "MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\n" +
+           "IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR\n" +
+           "OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,\n" +
+           "ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR\n" +
+           "OTHER DEALINGS IN THE SOFTWARE.\n" +
+           "\n" +
+           "For more information, please refer to <https://unlicense.org>\n"
+}
+
+func lic_wtfpl() -> string {
+    return "        DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE\n" +
+           "                Version 2, December 2004\n" +
+           "\n" +
+           " Copyright (C) 2004 Sam Hocevar <sam@hocevar.net>\n" +
+           "\n" +
+           " Everyone is permitted to copy and distribute verbatim or modified\n" +
+           " copies of this license document, and changing it is allowed as long\n" +
+           " as the name is changed.\n" +
+           "\n" +
+           "        DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE\n" +
+           "   TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION\n" +
+           "\n" +
+           "  0. You just DO WHAT THE FUCK YOU WANT TO.\n"
+}
+
+func lic_zlib() -> string {
+    return "zlib License\n" +
+           "\n" +
+           "Copyright (c) <year> <author>\n" +
+           "\n" +
+           "This software is provided 'as-is', without any express or implied\n" +
+           "warranty.  In no event will the authors be held liable for any damages\n" +
+           "arising from the use of this software.\n" +
+           "\n" +
+           "Permission is granted to anyone to use this software for any purpose,\n" +
+           "including commercial applications, and to alter it and redistribute it\n" +
+           "freely, subject to the following restrictions:\n" +
+           "\n" +
+           "1. The origin of this software must not be misrepresented; you must not\n" +
+           "   claim that you wrote the original software. If you use this software\n" +
+           "   in a product, an acknowledgment in the product documentation would be\n" +
+           "   appreciated but is not required.\n" +
+           "2. Altered source versions must be plainly marked as such, and must not be\n" +
+           "   misrepresented as being the original software.\n" +
+           "3. This notice may not be removed or altered from any source distribution.\n"
+}
+
+// ============================================================================
+// 五、校验（check：清单声明 vs LICENSE 实况）
+// ============================================================================
+
+// 读 LICENSE 文件并对照声明；打印结论。返回 0=一致 1=不一致 2=未识别/缺文件。
+pub func lic_check_report(declared: string, lic_path: string) -> i64 {
+    if !file_exists(lic_path) {
+        print_err("[pkg] 许可证校验: 缺少 LICENSE 文件（" + lic_path + "）\n")
+        return 2
+    }
+    var src = file_read(lic_path)
+    var d = lic_detect(src)
+    var detected = d.0
+    if detected == "Custom" {
+        print_err("[pkg] 许可证校验: LICENSE 无法识别为内置大全中的许可证（视为自定义条款）\n")
+        return 2
+    }
+    if declared == "" {
+        println("[pkg] 许可证校验: LICENSE 识别为 " + detected + "（清单未声明 license）")
+        return 0
+    }
+    if declared == detected {
+        println("[pkg] 许可证校验: 清单声明与 LICENSE 实况一致（" + detected + "）")
+        return 0
+    }
+    print_err("[pkg] 提示: 清单声明 license=" + declared + " 与 LICENSE 实况 " + detected +
+              " 不一致（以 LICENSE 文件为准）\n")
+    return 1
+}
+
+}

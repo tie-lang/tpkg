@@ -50,6 +50,10 @@ tiec main.tie -o pkg.exe --no-cache   # --no-cache 保证产出，避免 tiec �
   `cli --script` 生成轻档（根扁平单文件）。
 - **领域示例文件**：每档生成 1-3 个代表性示例（六型内容：td/md/csv/cir/case 数据与
   prog/libfn 代码骨架——如 circuit 的 SPICE 网表、data 的 CSV 样例、cli 的子命令与冒烟测试）。
+- **许可证识别模块（规范 7.3）**：`tie license detect|check|list`；内置大全以
+  SPDX License List（官方全量 740 项）为基准，附加 UFL/TPL；注入（`new --license=`）
+  含 TPL-2.3 全文与主流短式全文，其余官方引用式；打包/发布链路校验声明与 LICENSE
+  实况一致性。
 
 ## License
 
