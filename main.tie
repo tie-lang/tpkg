@@ -124,7 +124,7 @@ func help_text() -> string {
            "\n" +
            "用法:\n" +
            "  tie init <项目名>      初始化项目（--kind=<档>；变体同 tie new）\n" +
-           "  tie new <项目名>      脚手架新建（--kind=<档> 三十五档；--template=<名> 用户模板）\n" +
+           "  tie new <项目名>      脚手架新建（--kind=<档>：官方 35 档或用户档；--template 同义）\n" +
            "  tie add <依赖>         添加依赖\n" +
            "  tie remove <包名>      移除依赖\n" +
            "  tie install            安装全部依赖到 .tie/deps/（解析 + 生成 tie.lock）\n" +
@@ -174,8 +174,23 @@ func cmd_init() -> i64 {
         ai = ai + 1
     }
     if !sc.sc_kind_valid(kind) {
-        print_err("[pkg] 未知档 kind: " + kind + "（tie template list 查看全部）\n")
-        return 1
+        // 非官方档：用户自定义 kind（用户模板目录同名模板；规范 4.4）
+        if !sc.sc_user_exists(kind) {
+            print_err("[pkg] 未知档 kind: " + kind + "（tie template list 查看全部）\n")
+            return 1
+        }
+        if !mkdir_all(name) {
+            print_err("[pkg] 创建目录失败: " + name + "\n")
+            return 1
+        }
+        var ufailed = sc.sc_generate_user(name, name, kind)
+        if ufailed > 0 {
+            print_err("[pkg] 骨架生成完成，失败 " + to_string(ufailed) + " 项\n")
+            return 1
+        }
+        println("[pkg] 项目初始化完成: " + name + "（用户档 " + kind + "）")
+        println("[pkg] 下一步: cd " + name)
+        return 0
     }
     if !variants_ok(kind, variants) {
         return 1
@@ -272,32 +287,57 @@ func cmd_new() -> i64 {
             kind = "cli"
         }
         if !sc.sc_kind_valid(kind) {
-            print_err("[pkg] 未知档 kind: " + kind + "\n")
-            var ks = sc.sc_kind_list()
-            var k: i64 = 0
-            while k < len(ks) {
-                print_err(ks[k] + " ")
-                k = k + 1
+            // 非官方档：查用户模板目录（用户自定义 kind；规范 4.4 用户加档）
+            if sc.sc_user_exists(kind) {
+                if len(variants) > 0 {
+                    print_err("[pkg] 用户档不支持变体（--" + variants[0] + "）\n")
+                    return 1
+                }
+                failed = sc.sc_generate_user(name, name, kind)
+                if failed == 0 {
+                    println("[pkg] 已按用户档生成: " + name + "（kind " + kind + "）")
+                }
+            } else {
+                print_err("[pkg] 未知档 kind: " + kind + "（官方档与用户模板目录均无）\n")
+                print_err("[pkg] 官方档: ")
+                var ks = sc.sc_kind_list()
+                var k: i64 = 0
+                while k < len(ks) {
+                    print_err(ks[k] + " ")
+                    k = k + 1
+                }
+                print_err("\n[pkg] 用户档（" + sc.sc_user_root() + "）: ")
+                var us = sc.sc_user_list()
+                if len(us) == 0 {
+                    print_err("（无）")
+                } else {
+                    var uk: i64 = 0
+                    while uk < len(us) {
+                        print_err(us[uk] + " ")
+                        uk = uk + 1
+                    }
+                }
+                print_err("\n")
+                return 1
             }
-            print_err("\n")
-            return 1
-        }
-        if !variants_ok(kind, variants) {
-            return 1
-        }
-        if licid != "" {
-            if !lic.lic_known(licid) {
-                println("[pkg] 提示: 未知许可证标识 " + licid + "（将写入引用式；tie license list 查看内置大全）")
+        } else {
+            if !variants_ok(kind, variants) {
+                return 1
             }
-            sc.sc_set_license(licid)
-        }
-        failed = sc.sc_generate_v(name, name, kind, variants)
-        if failed == 0 {
-            var vtail = ""
-            if len(variants) > 0 {
-                vtail = "，变体 " + to_string(len(variants)) + " 个"
+            if licid != "" {
+                if !lic.lic_known(licid) {
+                    println("[pkg] 提示: 未知许可证标识 " + licid + "（将写入引用式；tie license list 查看内置大全）")
+                }
+                sc.sc_set_license(licid)
             }
-            println("[pkg] 已生成: " + name + "（kind " + kind + vtail + "）")
+            failed = sc.sc_generate_v(name, name, kind, variants)
+            if failed == 0 {
+                var vtail = ""
+                if len(variants) > 0 {
+                    vtail = "，变体 " + to_string(len(variants)) + " 个"
+                }
+                println("[pkg] 已生成: " + name + "（kind " + kind + vtail + "）")
+            }
         }
     }
     if want_git {
