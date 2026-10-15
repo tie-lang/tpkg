@@ -1005,6 +1005,7 @@ pub func sc_generate_user(dir: string, name: string, tpl: string) -> i64 {
             }
             k = k + 1
         }
+        // 注意：all 表保存**模板原名**（读源与目录判定）；写入目标名在复制循环中替换
         table_push(all, sb_build(sb))
         i = i + 1
     }
@@ -1016,15 +1017,18 @@ pub func sc_generate_user(dir: string, name: string, tpl: string) -> i64 {
             // 文件：读 + {{name}} 替换 + 写
             var content = file_read(src_root + "/" + rel)
             content = replace_all(content, "{{name}}", name)
-            if !sc_write(dir + "/" + rel, content) {
+            // 文件名亦可含 {{name}}（如插件模板 src/{{name}}_plugin.tie）
+            var dst_rel = replace_all(rel, "{{name}}", name)
+            if !sc_write(dir + "/" + dst_rel, content) {
                 failed = failed + 1
             }
         } else {
             // 目录：建 + .gitkeep（保证结构入库）
-            if !mkdir_all(dir + "/" + rel) {
+            var dst_dir = replace_all(rel, "{{name}}", name)
+            if !mkdir_all(dir + "/" + dst_dir) {
                 failed = failed + 1
             }
-            if !sc_write(dir + "/" + rel + "/.gitkeep", "") {
+            if !sc_write(dir + "/" + dst_dir + "/.gitkeep", "") {
                 failed = failed + 1
             }
         }
