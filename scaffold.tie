@@ -659,8 +659,13 @@ pub func sc_generate_v(dir: string, name: string, kind: string, variants: table<
 
 // 宽容生成：已存在文件跳过（用于在既有目录补骨架，如 tie init）。
 pub func sc_fill_missing(dir: string, name: string, kind: string) -> i64 {
+    return sc_fill_missing_v(dir, name, kind, table_new_string())
+}
+
+// 宽容 + 变体（变体合法性/冲突已由调用方校验）。
+pub func sc_fill_missing_v(dir: string, name: string, kind: string, variants: table<string>) -> i64 {
     g_sc_only_absent = true
-    return sc_impl(dir, name, kind, table_new_string())
+    return sc_impl(dir, name, kind, variants)
 }
 
 func sc_impl(dir: string, name: string, kind: string, variants: table<string>) -> i64 {
