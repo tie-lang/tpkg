@@ -32,7 +32,7 @@ spelled without `=`; `^` covers the common "same-major latest-compat" case).*
 
 ## 2. 依赖解析树 / Dependency resolution tree
 
-- 清单声明依赖 `{ name: spec }`（td / tie.pkg）。
+- 清单声明依赖 `{ name: spec }`（td / tpkg.config.td）。
 - **算法**：`deps.resolve` 用 **BFS + 队头指针**（无递归，规避 tie 无递归约束）
   递归解析传递依赖；同包名按 `name+spec` 去重（防环/防重复处理）；深度上限 3。
 - **版本选择**：**MVS 最小版本选择**（Go 风格，P2c）——约束解析取满足全部约束的
@@ -102,17 +102,18 @@ The file/`keelpkg` registry tree (no gzip tar) is the formal path around it.*
 <project>/
 ├── src/
 │   └── main.tie          // hello world，可被 tiec 编译运行
-├── tie.pkg              // 清单（name=<project>,main=src/main.tie）
+├── tpkg.config.td       // 清单（name=<project>,kind,main=src/main.tie）
 ├── README.md            // 项目说明
 ├── .gitignore           // 忽略 .tie/ 产物、*.exe、*.tar.gz
 └── LICENSE              // 引用 TPL 2.0（生成简要说明，非全文避免膨胀）
 ```
 
-- 清单键 `tie.pkg`（沿用既有 install/resolve 机器与注册表的读取面；"pkg.td"
-  曾考虑为清单名，但因整套解析/注册链均键于 `tie.pkg`，为一致性保留 `tie.pkg`）。
-- 入口放 `src/main.tie`，`tie.pkg` 的 `main` 指向它；`tpkg run` / `tiec` 可编译。
+- 清单位 `tpkg.config.td`（10-15 决策：全生态规范统一命名；此前沿用的 `tie.pkg`
+  已随清单格式迁移退场）。
+- 入口放 `src/main.tie`，`tpkg.config.td` 的 `main` 指向它；`tpkg run` / `tiec` 可编译。
 - 可选 `--git` 在生成后 `git init`。
 
-*EN: scaffold = `src/main.tie` + manifest `tie.pkg` (kept over `pkg.td` for
-consistency with the resolve/registry chain) + README + .gitignore + LICENSE;
-entry under `src/`, parameterized by project name; optional `git init`.*
+*EN: scaffold = `src/main.tie` + manifest `tpkg.config.td` (unified naming,
+    10-15 decision; `tie.pkg` retired by the manifest migration) + README +
+    .gitignore + LICENSE; entry under `src/`, parameterized by project name;
+    optional `git init`.*
