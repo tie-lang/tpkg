@@ -43,6 +43,7 @@ import "./deps.tie" as dp
 import "./publish.tie" as pb
 import "./pack.tie" as pk
 import "./search.tie" as sr
+import "./scaffold.tie" as sc
 
 // ================= 入口：子命令分派 =================
 
@@ -63,6 +64,9 @@ func main() -> i64 {
     }
     if cmd == "new" {
         return cmd_new()
+    }
+    if cmd == "template" {
+        return cmd_template()
     }
     if cmd == "add" {
         return cmd_add()
@@ -115,8 +119,8 @@ func help_text() -> string {
     return "tie 包管理器（Harbor M6，tie 语言自写）\n" +
            "\n" +
            "用法:\n" +
-           "  tie init <项目名>      初始化项目（生成 tpkg.config.td + main.tie 模板）\n" +
-           "  tie new <项目名>      脚手架新建项目（p.9.2.5：src/ + 清单 + README + .gitignore + LICENSE）\n" +
+           "  tie init <项目名>      初始化项目（标准档骨架；--kind=<档> 可指定）\n" +
+           "  tie new <项目名>      脚手架新建（--kind=<档> 三十五档；--template=<名> 用户模板）\n" +
            "  tie add <依赖>         添加依赖\n" +
            "  tie remove <包名>      移除依赖\n" +
            "  tie install            安装全部依赖到 .tie/deps/（解析 + 生成 tie.lock）\n" +
@@ -128,6 +132,7 @@ func help_text() -> string {
            "  tie verify <包名>      校验已安装包（S3.2：signature 哈希比对）\n" +
            "  tie search <关键字>    搜索注册表（TIE_REGISTRY 可指定基址）\n" +
            "  tie info <包名>        查询注册表包信息\n" +
+           "  tie template list      列出官方档与用户模板\n" +
            "  tie help               显示本帮助\n" +
            "\n" +
            "依赖写法:\n" +
@@ -145,126 +150,113 @@ func help_text() -> string {
 func cmd_init() -> i64 {
     var name = arg_string(1)
     if name == "" {
-        print_err("[pkg] 用法: tie init <项目名>\n")
+        print_err("[pkg] 用法: tie init <项目名> [--kind=<档>]\n")
         return 1
     }
-    // 创建项目目录（mkdir_all 递归创建）
+    var kind = "cli"
+    var ai: i64 = 2
+    while ai < arg_count() {
+        var a = arg_string(ai)
+        if mf.starts_with(a, "--kind=") {
+            kind = mf.slice(a, 7, len(a))
+        }
+        ai = ai + 1
+    }
+    if !sc.sc_kind_valid(kind) {
+        print_err("[pkg] 未知档 kind: " + kind + "（tie template list 查看全部）\n")
+        return 1
+    }
     if !mkdir_all(name) {
         print_err("[pkg] 创建目录失败: " + name + "\n")
         return 1
     }
-    var pkg_path = name + "/tpkg.config.td"
-    var main_path = name + "/main.tie"
-    var ok: bool = true
-    // 生成 tpkg.config.td 清单
-    if file_exists(pkg_path) {
-        println("[pkg] 已存在 " + pkg_path + "，跳过")
-    } else {
-        if file_write(pkg_path, pkg_template(name)) {
-            println("[pkg] 已生成 " + pkg_path)
-        } else {
-            print_err("[pkg] 写入失败: " + pkg_path + "\n")
-            ok = false
-        }
-    }
-    // 生成 main.tie 模板
-    if ok {
-        if file_exists(main_path) {
-            println("[pkg] 已存在 " + main_path + "，跳过")
-        } else {
-            if file_write(main_path, main_template()) {
-                println("[pkg] 已生成 " + main_path)
-            } else {
-                print_err("[pkg] 写入失败: " + main_path + "\n")
-                ok = false
-            }
-        }
-    }
-    if ok {
-        println("[pkg] 项目初始化完成: " + name)
-        println("[pkg] 下一步: cd " + name + " && tie add <依赖> && tie install && tie run")
-        return 0
-    }
-    return 1
-}
-
-// tpkg.config.td 清单模板（tie:data 格式；name 由 init 参数填充）。
-func pkg_template(name: string) -> string {
-    return "// tpkg.config.td\n" +
-           "// tie:data\n" +
-           "[\n" +
-           "    \"name\": \"" + name + "\",\n" +
-           "    \"version\": \"0.1.0\",\n" +
-           "    \"description\": \"tie 项目\",\n" +
-           "    \"kind\": \"cli\",\n" +
-           "    \"main\": \"main.tie\",\n" +
-           "    \"author\": \"\",\n" +
-           "    \"license\": \"TPL-2.3\",\n" +
-           "    \"dependencies\": [\n" +
-           "    ],\n" +
-           "]\n"
-}
-
-// main.tie 项目主文件模板（可编译运行的最小程序）。
-func main_template() -> string {
-    return "// tie:logic\n" +
-           "// tie:opt=2\n" +
-           "\n" +
-           "// 项目主文件（由 tie init 生成）\n" +
-           "\n" +
-           "func main() {\n" +
-           "    println(\"Hello, tie!\")\n" +
-           "}\n"
-}
-
-// ================= tie new：脚手架新建项目（p.9.2.5） =================
-
-// 脚手架 `tpkg new <项目名> [--git]`：生成标准目录骨架（src/ + 清单 + README
-// + .gitignore + LICENSE），项目名注入模板。可选 `--git` 在生成后 `git init`。
-func cmd_new() -> i64 {
-    var name = arg_string(1)
-    if name == "" {
-        print_err("[pkg] 用法: tie new <项目名> [--git]\n")
+    // 宽容生成（已存在文件跳过；可在既有目录补骨架）
+    var failed = sc.sc_fill_missing(name, name, kind)
+    if failed > 0 {
+        print_err("[pkg] 骨架生成完成，失败 " + to_string(failed) + " 项\n")
         return 1
     }
-    // 校验项目名为目录安全名（仅字母数字 _- . 与 /，排除路径穿越）。
+    println("[pkg] 项目初始化完成: " + name + "（kind " + kind + "）")
+    println("[pkg] 下一步: cd " + name + " && tie add <依赖> && tie install && tie run")
+    return 0
+}
+
+func cmd_new() -> i64 {
+    // 参数扫描：首个普通参数为项目名；--kind= / --template= / --git
+    var name: string = ""
+    var kind: string = ""
+    var tpl: string = ""
+    var want_git: bool = false
+    var i: i64 = 1
+    while i < arg_count() {
+        var a = arg_string(i)
+        if mf.starts_with(a, "--kind=") {
+            kind = mf.slice(a, 7, len(a))
+        } else if mf.starts_with(a, "--template=") {
+            tpl = mf.slice(a, 11, len(a))
+        } else if a == "--git" {
+            want_git = true
+        } else if name == "" {
+            name = a
+        }
+        i = i + 1
+    }
+    if name == "" {
+        print_err("[pkg] 用法: tie new <项目名> [--kind=<档>] [--template=<用户模板>] [--git]\n")
+        print_err("[pkg]   示例: tie new my-tool --kind=cli\n")
+        print_err("[pkg]         tie new my-api  --kind=backend\n")
+        print_err("[pkg]         tie new my-lib  --kind=lib\n")
+        print_err("[pkg]         tie new my-proj --template=our-team\n")
+        print_err("[pkg]         tie template list（列出官方档与用户模板）\n")
+        return 1
+    }
     if !safe_project_name(name) {
         print_err("[pkg] 项目名非法（仅允许字母/数字/_/-/.，且不得含路径分隔）: " + name + "\n")
         return 1
     }
-    // 已存在目录 → 拒绝（避免覆盖已有项目）
     if dir_exists(name) {
         print_err("[pkg] 目录已存在: " + name + "（未生成任何文件）\n")
+        return 1
+    }
+    if tpl != "" && kind != "" {
+        print_err("[pkg] --kind 与 --template 互斥\n")
         return 1
     }
     if !mkdir_all(name) {
         print_err("[pkg] 创建目录失败: " + name + "\n")
         return 1
     }
-    if !mkdir_all(name + "/src") {
-        print_err("[pkg] 创建 src/ 失败\n")
-        return 1
-    }
-    // 逐文件生成（已存在则跳过；写失败计失败并继续其余文件）
     var failed: i64 = 0
-    if !write_if_absent(name + "/tpkg.config.td", new_pkg_template(name)) {
-        failed = failed + 1
+    if tpl != "" {
+        if !sc.sc_user_exists(tpl) {
+            print_err("[pkg] 用户模板不存在: " + tpl + "（目录: " + sc.sc_user_root() + "）\n")
+            return 1
+        }
+        failed = sc.sc_generate_user(name, name, tpl)
+        if failed == 0 {
+            println("[pkg] 已按用户模板生成: " + name + "（模板 " + tpl + "）")
+        }
+    } else {
+        if kind == "" {
+            kind = "cli"
+        }
+        if !sc.sc_kind_valid(kind) {
+            print_err("[pkg] 未知档 kind: " + kind + "\n")
+            var ks = sc.sc_kind_list()
+            var k: i64 = 0
+            while k < len(ks) {
+                print_err(ks[k] + " ")
+                k = k + 1
+            }
+            print_err("\n")
+            return 1
+        }
+        failed = sc.sc_generate(name, name, kind)
+        if failed == 0 {
+            println("[pkg] 已生成: " + name + "（kind " + kind + "）")
+        }
     }
-    if !write_if_absent(name + "/src/main.tie", new_main_template(name)) {
-        failed = failed + 1
-    }
-    if !write_if_absent(name + "/README.md", new_readme_template(name)) {
-        failed = failed + 1
-    }
-    if !write_if_absent(name + "/.gitignore", new_gitignore_template()) {
-        failed = failed + 1
-    }
-    if !write_if_absent(name + "/LICENSE", new_license_template()) {
-        failed = failed + 1
-    }
-    // 可选 git init
-    var opt = arg_string(2)
-    if opt == "--git" {
+    if want_git {
         var rc = exec_code("git init " + name)
         if rc == 0 {
             println("[pkg] 已 git init: " + name)
@@ -276,9 +268,36 @@ func cmd_new() -> i64 {
         print_err("[pkg] 脚手架生成完成，失败 " + to_string(failed) + " 项\n")
         return 1
     }
-    println("[pkg] 脚手架创建完成: " + name)
-    println("[pkg] 下一步: cd " + name + " && tie run（或 tiec src/main.tie -o hello.exe）")
+    println("[pkg] 下一步: cd " + name)
     return 0
+}
+
+// tpkg template —— 模板清单（官方 35 档 + 用户模板）。
+func cmd_template() -> i64 {
+    var sub = arg_string(1)
+    if sub == "" || sub == "list" {
+        println("[pkg] 官方档（35 个；tie new --kind=<档>）：")
+        var ks = sc.sc_kind_list()
+        var i: i64 = 0
+        while i < len(ks) {
+            println("  " + ks[i])
+            i = i + 1
+        }
+        println("[pkg] 用户模板（tie new --template=<名>；目录 " + sc.sc_user_root() + "）：")
+        var us = sc.sc_user_list()
+        if len(us) == 0 {
+            println("  （无）")
+        } else {
+            i = 0
+            while i < len(us) {
+                println("  " + us[i])
+                i = i + 1
+            }
+        }
+        return 0
+    }
+    print_err("[pkg] 用法: tie template list\n")
+    return 1
 }
 
 // 写文件（已存在则跳过返回 true；写失败返回 false）。调用于 new 脚手架。
@@ -310,61 +329,6 @@ func safe_project_name(name: string) -> bool {
 func dir_exists(name: string) -> bool {
     var entries = list_dir(name)
     return len(entries) > 0
-}
-
-// new 脚手架 tpkg.config.td 模板（p.9.2.5；name 注入，main 指向 src/main.tie）。
-func new_pkg_template(name: string) -> string {
-    return "// tpkg.config.td\n" +
-           "// tie:data\n" +
-           "[\n" +
-           "    \"name\": \"" + name + "\",\n" +
-           "    \"version\": \"0.1.0\",\n" +
-           "    \"description\": \"tie 项目\",\n" +
-           "    \"kind\": \"cli\",\n" +
-           "    \"main\": \"src/main.tie\",\n" +
-           "    \"author\": \"\",\n" +
-           "    \"license\": \"TPL-2.3\",\n" +
-           "    \"dependencies\": [\n" +
-           "    ],\n" +
-           "]\n"
-}
-
-// new 脚手架 src/main.tie 模板（可编译可运行的 hello）。
-func new_main_template(name: string) -> string {
-    return "// tie:logic\n" +
-           "// 由 tpkg new 生成\n" +
-           "\n" +
-           "func main() {\n" +
-           "    println(\"Hello from " + name + "!\")\n" +
-           "}\n"
-}
-
-// new 脚手架 README.md 模板。
-func new_readme_template(name: string) -> string {
-    return "# " + name + "\n" +
-           "\n" +
-           "tie 项目 / tie project.\n" +
-           "\n" +
-           "由 [tpkg](https://github.com/tie-lang/tpkg) 脚手架 `tpkg new` 生成。\n"
-}
-
-// new 脚手架 .gitignore 模板。
-func new_gitignore_template() -> string {
-    return "# build artifacts\n" +
-           "*.exe\n" +
-           "*.ll\n" +
-           "*.o\n" +
-           "*.obj\n" +
-           "*.log\n" +
-           "\n" +
-           "# install / cache\n" +
-           ".tie/\n"
-}
-
-// new 脚手架 LICENSE 模板（TPL 2.0 引用，避免在脚手架内展开全文）。
-func new_license_template() -> string {
-    return "本仓库按 Tie Public License v2.0（TPL 2.0）授权发布（全文见 https://github.com/tie-lang/tpkg）。\n" +
-           "EN: Released under Tie Public License v2.0 (TPL 2.0), full text at https://github.com/tie-lang/tpkg.\n"
 }
 
 // ================= tie add：添加依赖 =================
@@ -654,15 +618,18 @@ func cmd_publish() -> i64 {
     var src = file_read("tpkg.config.td")
     var name = mf.field(src, "name")
     var version = mf.field(src, "version")
-    var main_file = mf.field(src, "main")
-    if main_file == "" {
-        main_file = "main.tie"
-    }
-    var exports = mf.field(src, "exports")
     var kind = mf.field(src, "kind")
     if kind == "" {
         println("[pkg] 提示: tpkg.config.td 缺 kind 字段（规范要求；见 tpkg-spec）")
     }
+    var main_file = mf.field(src, "main")
+    if main_file == "" {
+        main_file = sc.sc_main_rel(kind)
+    }
+    if main_file == "" {
+        main_file = "main.tie"
+    }
+    var exports = mf.field(src, "exports")
     return pb.publish(name, version, main_file, exports)
 }
 
@@ -677,15 +644,18 @@ func cmd_pack() -> i64 {
     var src = file_read("tpkg.config.td")
     var name = mf.field(src, "name")
     var version = mf.field(src, "version")
-    var main_file = mf.field(src, "main")
-    if main_file == "" {
-        main_file = "main.tie"
-    }
-    var exports = mf.field(src, "exports")
     var kind = mf.field(src, "kind")
     if kind == "" {
         println("[pkg] 提示: tpkg.config.td 缺 kind 字段（规范要求；见 tpkg-spec）")
     }
+    var main_file = mf.field(src, "main")
+    if main_file == "" {
+        main_file = sc.sc_main_rel(kind)
+    }
+    if main_file == "" {
+        main_file = "main.tie"
+    }
+    var exports = mf.field(src, "exports")
     return pk.pack(name, version, main_file, exports)
 }
 

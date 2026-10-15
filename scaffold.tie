@@ -1,0 +1,586 @@
+type tie<class>
+// scaffold.tie —— 多模板脚手架（35 官方档 + 用户模板双层）
+// ============================================================================
+// 官方档：内置只读（下表数据，随 tpkg 分发、不可修改；kind 与包与项目规范第 4 章
+//   总表一致）。保证同名档在任何机器上生成同构骨架。
+// 用户模板：~/.tpkg/templates/<模板名>/——目录树原样复制；文本文件内 {{name}} 替换。
+//   用户模板不得与官方档名重名（--template 与 --kind 互斥）。
+//
+// 生成物 = 公共面（tpkg.config.td / README.md / LICENSE / .gitignore）
+//        + 档专属面（目录树（每目录 .gitkeep）+ 入口文件；lib 档门面=src/<name>.tie）。
+//
+// main 推导：sc_main_rel(kind) —— 供生成与"清单缺省 main 推导"共用
+//   （规范：main 按 kind 推导；cli → src/main.tie，spec → tools/build.tie，
+//   lib → src 下与 name 同名的文件——本表对每档给出确定值）。
+//
+// 接口：
+//   sc_kind_valid(kind) -> bool · sc_kind_list() -> table<string>
+//   sc_main_rel(kind) -> string · sc_dirs(kind) -> table<string>
+//   sc_generate(dir, name, kind) -> i64              （0=成功）
+//   sc_user_root() -> string · sc_user_list() -> table<string>
+//   sc_generate_user(dir, name, tpl) -> i64          （0=成功）
+// ============================================================================
+
+// 全局标志：sc_fill_missing 模式（已存在文件跳过；单线程 CLI，无并发）。
+var g_sc_only_absent: bool = false
+
+namespace scaffold {
+
+// ============================================================================
+// 一、官方档数据（"main_rel|dirs"；dirs 逗号分隔，生成时 mkdir + .gitkeep）
+// ============================================================================
+
+pub func sc_def(kind: string) -> string {
+    // ---- 软件域（12） ----
+    if kind == "website" { return "src/main.tie|public,src,tests,target/site" }
+    if kind == "backend" { return "src/main.tie|src/routes,src/services,src/store,src/middleware,config,tests,target" }
+    if kind == "app" { return "src/main.tie|src/ui,src/core,src/platform,assets,packaging,tests,target" }
+    if kind == "cli" { return "src/main.tie|src/commands,tests,target" }
+    if kind == "lib" { return "src/main.tie|src,examples,tests,target" }
+    if kind == "bindings" { return "src/main.tie|include,src,tests,target" }
+    if kind == "plugin" { return "src/main.tie|src,tests,target" }
+    if kind == "language" { return "src/main.tie|src,tests/cases,tests/corpus,target" }
+    if kind == "conformance" { return "src/main.tie|cases,corpus,src,target" }
+    if kind == "ops" { return "src/main.tie|src,cfg,manifests,target" }
+    if kind == "os" { return "mk/main.tie|mk,boot,kernel,arch,drivers,libs,user,tools,target" }
+    if kind == "embedded" { return "src/main.tie|src,arch,drivers,config,tests,target" }
+    // ---- 内容域（6） ----
+    if kind == "spec" { return "tools/build.tie|source,dist,archive,assets,tools" }
+    if kind == "doc" { return "src/main.tie|src,assets,target" }
+    if kind == "book" { return "src/main.tie|src,src/chapters,assets,target" }
+    if kind == "paper" { return "src/main.tie|src,src/sections,data,assets,target" }
+    if kind == "slides" { return "src/main.tie|src,assets,target" }
+    if kind == "course" { return "src/main.tie|src,slides,exercises,assets,target" }
+    // ---- 数据域（3） ----
+    if kind == "data" { return "src/main.tie|src,data,schema,tests,target" }
+    if kind == "ml" { return "src/main.tie|src,data,arch,tests,target" }
+    if kind == "db" { return "src/main.tie|schema,migrations,seed,src,target" }
+    // ---- 科学域（2） ----
+    if kind == "simulation" { return "src/main.tie|src,params,tests,target" }
+    if kind == "experiment" { return "src/main.tie|src,protocol,runs,target" }
+    // ---- 工程域（3） ----
+    if kind == "hardware" { return "src/main.tie|src,lib,sim,fab,target" }
+    if kind == "circuit" { return "src/main.tie|src,lib,sim,fab,target" }
+    if kind == "modeling" { return "src/main.tie|src,lib,drawings,target" }
+    // ---- 媒体域（9） ----
+    if kind == "art" { return "src/main.tie|src,assets,target" }
+    if kind == "photo" { return "src/main.tie|src,originals,catalog,target" }
+    if kind == "comic" { return "src/main.tie|src,script,panels,assets,target" }
+    if kind == "music" { return "src/main.tie|src,arrangement,assets,target" }
+    if kind == "score" { return "src/main.tie|src,score,parts,target" }
+    if kind == "audio" { return "src/main.tie|src,takes,timeline,target" }
+    if kind == "video" { return "src/main.tie|src,media,timeline,target" }
+    if kind == "animation" { return "src/main.tie|src,scenes,assets,target" }
+    if kind == "3d" { return "src/main.tie|src,scenes,assets,target" }
+    return ""
+}
+
+pub func sc_kind_valid(kind: string) -> bool {
+    return sc_def(kind) != ""
+}
+
+pub func sc_kind_list() -> table<string> {
+    var t = table_new_string()
+    table_push(t, "website")
+    table_push(t, "backend")
+    table_push(t, "app")
+    table_push(t, "cli")
+    table_push(t, "lib")
+    table_push(t, "bindings")
+    table_push(t, "plugin")
+    table_push(t, "language")
+    table_push(t, "conformance")
+    table_push(t, "ops")
+    table_push(t, "os")
+    table_push(t, "embedded")
+    table_push(t, "spec")
+    table_push(t, "doc")
+    table_push(t, "book")
+    table_push(t, "paper")
+    table_push(t, "slides")
+    table_push(t, "course")
+    table_push(t, "data")
+    table_push(t, "ml")
+    table_push(t, "db")
+    table_push(t, "simulation")
+    table_push(t, "experiment")
+    table_push(t, "hardware")
+    table_push(t, "circuit")
+    table_push(t, "modeling")
+    table_push(t, "art")
+    table_push(t, "photo")
+    table_push(t, "comic")
+    table_push(t, "music")
+    table_push(t, "score")
+    table_push(t, "audio")
+    table_push(t, "video")
+    table_push(t, "animation")
+    table_push(t, "3d")
+    return t
+}
+
+// ============================================================================
+// 二、文本工具（自备）
+// ============================================================================
+
+func slice(s: string, start: i64, end: i64) -> string {
+    var n: i64 = len(s)
+    var lo: i64 = start
+    if lo < 0 {
+        lo = 0
+    }
+    if lo > n {
+        lo = n
+    }
+    var hi: i64 = end
+    if hi < 0 {
+        hi = 0
+    }
+    if hi > n {
+        hi = n
+    }
+    var out: string = ""
+    var i: i64 = lo
+    while i < hi {
+        out = out + str_char(s, i)
+        i = i + 1
+    }
+    return out
+}
+
+func starts_with(s: string, prefix: string) -> bool {
+    var n: i64 = len(s)
+    var m: i64 = len(prefix)
+    if m > n {
+        return false
+    }
+    var i: i64 = 0
+    while i < m {
+        if str_char(s, i) != str_char(prefix, i) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// 取 "|" 前段（main_rel）。
+pub func sc_main_rel(kind: string) -> string {
+    var def = sc_def(kind)
+    if def == "" {
+        return ""
+    }
+    var n: i64 = len(def)
+    var i: i64 = 0
+    while i < n {
+        if str_char(def, i) == "|" {
+            return slice(def, 0, i)
+        }
+        i = i + 1
+    }
+    return def
+}
+
+// 取 "|" 后段并按 "," 切分为目录表。
+pub func sc_dirs(kind: string) -> table<string> {
+    var out = table_new_string()
+    var def = sc_def(kind)
+    if def == "" {
+        return out
+    }
+    // 跳过 | 前段
+    var n: i64 = len(def)
+    var i: i64 = 0
+    var seg: i64 = 0 - 1
+    while i < n {
+        if str_char(def, i) == "|" {
+            seg = i + 1
+            i = n
+        } else {
+            i = i + 1
+        }
+    }
+    if seg < 0 {
+        return out
+    }
+    var cur: string = ""
+    var j: i64 = seg
+    while j < n {
+        var c = str_char(def, j)
+        if c == "," {
+            if cur != "" {
+                table_push(out, cur)
+            }
+            cur = ""
+        } else {
+            cur = cur + c
+        }
+        j = j + 1
+    }
+    if cur != "" {
+        table_push(out, cur)
+    }
+    return out
+}
+
+// ns 净化：'-' '.' → '_'（库门面命名空间用）。
+func ns_safe(name: string) -> string {
+    var out: string = ""
+    var i: i64 = 0
+    var n: i64 = len(name)
+    while i < n {
+        var c = str_char(name, i)
+        if c == "-" || c == "." {
+            out = out + "_"
+        } else {
+            out = out + c
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// 全量替换（文本域；用于用户模板 {{name}}）。
+func replace_all(s: string, from: string, to: string) -> string {
+    var m: i64 = len(from)
+    if m == 0 {
+        return s
+    }
+    var out: string = ""
+    var n: i64 = len(s)
+    var i: i64 = 0
+    while i < n {
+        if i + m <= n {
+            var hit = true
+            var k: i64 = 0
+            while k < m {
+                if str_char(s, i + k) != str_char(from, k) {
+                    hit = false
+                    k = m
+                } else {
+                    k = k + 1
+                }
+            }
+            if hit {
+                out = out + to
+                i = i + m
+            } else {
+                out = out + str_char(s, i)
+                i = i + 1
+            }
+        } else {
+            out = out + str_char(s, i)
+            i = i + 1
+        }
+    }
+    return out
+}
+
+// ============================================================================
+// 三、公共面与入口内容
+// ============================================================================
+
+func sc_config(name: string, kind: string, main_rel: string) -> string {
+    var sb = string_builder()
+    sb_append(sb, "// tpkg.config.td\n")
+    sb_append(sb, "// tie:data\n")
+    sb_append(sb, "[\n")
+    sb_append(sb, "    \"name\": \"" + name + "\",\n")
+    sb_append(sb, "    \"version\": \"0.1.0\",\n")
+    sb_append(sb, "    \"description\": \"tie " + kind + " 项目\",\n")
+    sb_append(sb, "    \"kind\": \"" + kind + "\",\n")
+    sb_append(sb, "    \"main\": \"" + main_rel + "\",\n")
+    sb_append(sb, "    \"author\": \"\",\n")
+    sb_append(sb, "    \"license\": \"TPL-2.3\",\n")
+    sb_append(sb, "    \"dependencies\": [\n")
+    sb_append(sb, "    ],\n")
+    sb_append(sb, "]\n")
+    return sb_build(sb)
+}
+
+func sc_readme(name: string, kind: string, dirs: table<string>) -> string {
+    var sb = string_builder()
+    sb_append(sb, "# " + name + "\n\n")
+    sb_append(sb, "tie 项目（kind: " + kind + "）/ tie project.\n\n")
+    sb_append(sb, "由 [tpkg](https://github.com/tie-lang/tpkg) 脚手架 `tpkg new --kind=" + kind + "` 生成。\n\n")
+    sb_append(sb, "## 结构 / Structure\n\n")
+    sb_append(sb, "```\n")
+    sb_append(sb, name + "/\n")
+    var i: i64 = 0
+    while i < len(dirs) {
+        sb_append(sb, "  " + dirs[i] + "/\n")
+        i = i + 1
+    }
+    sb_append(sb, "```\n\n")
+    sb_append(sb, "## 约定 / Conventions\n\n")
+    sb_append(sb, "- 公共面：`tpkg.config.td`（清单）、`LICENSE`、`.gitignore`、`README.md`。\n")
+    sb_append(sb, "- 构建产物进 `target/`；本地材料进 `_local_only/`（不入库）。\n")
+    sb_append(sb, "- 规范：tie 生态包与项目规范（tpkg-spec）。\n")
+    return sb_build(sb)
+}
+
+func sc_license() -> string {
+    return "本仓库按 Tie Public License v2.3（TPL-2.3）授权发布。\n" +
+           "全文见 https://github.com/tie-lang/tpkg（或 tie 生态许可证仓）。\n" +
+           "EN: Released under Tie Public License v2.3 (TPL-2.3), full text at the URL above.\n"
+}
+
+func sc_gitignore() -> string {
+    return "# build artifacts\n" +
+           "*.exe\n" +
+           "*.ll\n" +
+           "*.o\n" +
+           "*.obj\n" +
+           "*.log\n" +
+           "\n" +
+           "# install / cache / local materials\n" +
+           ".tie/\n" +
+           "target/\n" +
+           "_local_only/\n" +
+           "\n" +
+           "# os / editor\n" +
+           "Thumbs.db\n" +
+           ".DS_Store\n" +
+           ".idea/\n" +
+           ".vscode/\n"
+}
+
+// 入口文件内容：lib 档=门面（class）；其余=可编译的 hello（logic）。
+func sc_entry(name: string, kind: string, main_rel: string) -> string {
+    if kind == "lib" || kind == "bindings" {
+        var ns = ns_safe(name)
+        return "type tie<class>\n" +
+               "// " + name + " —— 库门面（main 指向；唯一承诺的导入面）\n" +
+               "\n" +
+               "namespace " + ns + " {\n" +
+               "    pub func hello() -> string {\n" +
+               "        return \"Hello from " + name + "\"\n" +
+               "    }\n" +
+               "}\n"
+    }
+    return "type tie<logic>\n" +
+           "// 由 tpkg new --kind=" + kind + " 生成（入口：" + main_rel + "）\n" +
+           "\n" +
+           "func main() {\n" +
+           "    println(\"Hello from " + name + "!\")\n" +
+           "}\n"
+}
+
+// ============================================================================
+// 四、生成（官方档）
+// ============================================================================
+
+func mk_parent(path: string) -> bool {
+    // 建上级目录（逐级找最后一个分隔符）
+    var cut: i64 = 0 - 1
+    var i: i64 = len(path) - 1
+    while i >= 0 {
+        var c = str_char(path, i)
+        if c == "/" || c == "\\" {
+            cut = i
+            i = 0 - 1
+        } else {
+            i = i - 1
+        }
+    }
+    if cut < 0 {
+        return true
+    }
+    return mkdir_all(slice(path, 0, cut))
+}
+
+func sc_write(path: string, content: string) -> bool {
+    if g_sc_only_absent {
+        if file_exists(path) {
+            return true
+        }
+    }
+    if !mk_parent(path) {
+        return false
+    }
+    return file_write(path, content)
+}
+
+pub func sc_generate(dir: string, name: string, kind: string) -> i64 {
+    g_sc_only_absent = false
+    return sc_generate_impl(dir, name, kind)
+}
+
+// 宽容生成：已存在文件跳过（用于在既有目录补骨架，如 tie init）。
+pub func sc_fill_missing(dir: string, name: string, kind: string) -> i64 {
+    g_sc_only_absent = true
+    return sc_generate_impl(dir, name, kind)
+}
+
+func sc_generate_impl(dir: string, name: string, kind: string) -> i64 {
+    var def = sc_def(kind)
+    if def == "" {
+        return 1
+    }
+    var main_rel = sc_main_rel(kind)
+    var dirs = sc_dirs(kind)
+    var failed: i64 = 0
+    // 公共面
+    if !sc_write(dir + "/tpkg.config.td", sc_config(name, kind, main_rel)) {
+        failed = failed + 1
+    }
+    if !sc_write(dir + "/README.md", sc_readme(name, kind, dirs)) {
+        failed = failed + 1
+    }
+    if !sc_write(dir + "/LICENSE", sc_license()) {
+        failed = failed + 1
+    }
+    if !sc_write(dir + "/.gitignore", sc_gitignore()) {
+        failed = failed + 1
+    }
+    // 档面：目录 + .gitkeep
+    var i: i64 = 0
+    while i < len(dirs) {
+        var d = dir + "/" + dirs[i]
+        if !mkdir_all(d) {
+            failed = failed + 1
+        }
+        if !sc_write(d + "/.gitkeep", "") {
+            failed = failed + 1
+        }
+        i = i + 1
+    }
+    // 入口（lib 档门面用 <name> 动态命名）
+    var entry_rel = main_rel
+    if kind == "lib" {
+        entry_rel = "src/" + name + ".tie"
+    }
+    if !sc_write(dir + "/" + entry_rel, sc_entry(name, kind, entry_rel)) {
+        failed = failed + 1
+    }
+    return failed
+}
+
+// ============================================================================
+// 五、用户模板
+// ============================================================================
+
+pub func sc_user_root() -> string {
+    var h = get_env("USERPROFILE")
+    if h == "" {
+        h = get_env("HOME")
+    }
+    if h == "" {
+        return ""
+    }
+    return h + "/.tpkg/templates"
+}
+
+pub func sc_user_list() -> table<string> {
+    var out = table_new_string()
+    var root = sc_user_root()
+    if root == "" {
+        return out
+    }
+    var entries = list_dir(root)
+    var i: i64 = 0
+    while i < len(entries) {
+        if entries[i] != "." && entries[i] != ".." {
+            table_push(out, entries[i])
+        }
+        i = i + 1
+    }
+    return out
+}
+
+pub func sc_user_exists(tpl: string) -> bool {
+    var root = sc_user_root()
+    if root == "" {
+        return false
+    }
+    var items = list_dir(root + "/" + tpl)
+    return len(items) > 0
+}
+
+// 目录条目判定（walk_dir 会含目录条目；被他人以 "<它>/" 前缀命中即目录）。
+func is_dir_entry(all: table<string>, rel: string) -> bool {
+    var pfx = rel + "/"
+    var i: i64 = 0
+    while i < len(all) {
+        if i < len(all) {
+            var other = all[i]
+            if other != rel {
+                if starts_with(other, pfx) {
+                    return true
+                }
+            }
+        }
+        i = i + 1
+    }
+    return false
+}
+
+pub func sc_generate_user(dir: string, name: string, tpl: string) -> i64 {
+    var root = sc_user_root()
+    if root == "" {
+        return 1
+    }
+    var src_root = root + "/" + tpl
+    var files = walk_dir(src_root)
+    if len(files) == 0 {
+        return 1
+    }
+    // 规范化（walk_dir 返回以 src_root 为前缀的完整路径——先剥前缀，再统一分隔符）
+    var pre1 = src_root + "/"
+    var pre2 = src_root + "\\"
+    var all = table_new_string()
+    var i: i64 = 0
+    while i < len(files) {
+        var rel = files[i]
+        if starts_with(rel, pre1) {
+            rel = slice(rel, len(pre1), len(rel))
+        } else if starts_with(rel, pre2) {
+            rel = slice(rel, len(pre2), len(rel))
+        }
+        if starts_with(rel, "./") {
+            rel = slice(rel, 2, len(rel))
+        }
+        if starts_with(rel, ".\\") {
+            rel = slice(rel, 2, len(rel))
+        }
+        // '\' → '/'
+        var sb = string_builder()
+        var k: i64 = 0
+        while k < len(rel) {
+            var b = str_byte(rel, k) & 0xFF
+            if b == 92 {
+                sb_append_byte(sb, 47)
+            } else {
+                sb_append_byte(sb, b)
+            }
+            k = k + 1
+        }
+        table_push(all, sb_build(sb))
+        i = i + 1
+    }
+    var failed: i64 = 0
+    i = 0
+    while i < len(all) {
+        var rel = all[i]
+        if !is_dir_entry(all, rel) {
+            // 文件：读 + {{name}} 替换 + 写
+            var content = file_read(src_root + "/" + rel)
+            content = replace_all(content, "{{name}}", name)
+            if !sc_write(dir + "/" + rel, content) {
+                failed = failed + 1
+            }
+        } else {
+            // 目录：建 + .gitkeep（保证结构入库）
+            if !mkdir_all(dir + "/" + rel) {
+                failed = failed + 1
+            }
+            if !sc_write(dir + "/" + rel + "/.gitkeep", "") {
+                failed = failed + 1
+            }
+        }
+        i = i + 1
+    }
+    return failed
+}
+
+}

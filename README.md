@@ -42,6 +42,9 @@ tiec main.tie -o pkg.exe --no-cache   # --no-cache 保证产出，避免 tiec �
   + `signature` 三件套。
 - **p.9.2.5 脚手架 `tpkg new`**：项目模板（src/ + 清单 + README + .gitignore + LICENSE）
   + 初始化（可选 git init）。
+- **多模板脚手架（35 档）**：`tpkg new --kind=<档>` 覆盖规范六域 35 档；
+  `--template=<名>` 用户模板（~/.tpkg/templates/，`{{name}}` 字符串替换）；
+  `tpkg template list` 列出官方档与用户模板；清单缺省 `main` 按 kind 推导。
 
 ## License
 
