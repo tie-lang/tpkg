@@ -52,9 +52,9 @@ recovery.*
 ## 3. 注册中心后端（决策）/ Registry backend
 
 - **当前默认 = 文件/目录注册表（暂存后端）**：`TIE_REGISTRY` 指向一个目录，
-  布局 `packages/<name>/<ver>.tar.gz` + `index.tie`（行 `name|version|desc`）。
-  `tie search/info` 读 index；`tie install` 下载 tar.gz 解压安装；发布方
-  `tie pack|publish` 产出带 TSHA1-f 指纹的签名分发单元。
+  布局 `packages/<name>/<ver>.tpkg` + `index.tie`（行 `name|version|desc`）。
+  `tie search/info` 读 index；`tie install` 下载 .tpkg 解包安装（tzp 容器）；发布方
+  `tie pack|publish` 产出带 blake3 指纹的签名分发单元。
 - **线上服务端形态（注明，未落服务端代码）**：把上述目录用任意静态 HTTP 服务
   承载（如 `python -m http.server`）即得线上基址；`fetch`/`search` 用 `http_get`
   拉 index、`http_get_file` 下包，支持 `TIE_REGISTRY=http://host:port`。
@@ -62,23 +62,23 @@ recovery.*
 - **p.7.2.5 keelpkg 文件注册树为上游正式目标**：`compiler/keel/keel_registry_cli.tie`
   （namespace `keelpkg`）实现 `publish/info/versions`，布局
   `<root>/<pkg>/index.td` + `<root>/<pkg>/<ver>/pkg.zd` + `info.td` + `pkg.zd.fp`
-  （tsha1f 指纹）。tpkg 的安全校验与之一致（TSHA1-f 指纹模型），后端树格式可在
+  （tsha1f 指纹）。tpkg 现行安全校验为 blake3（全生态哈希基线；keelpkg 待随生态迁移对齐），后端树格式可在
   tpkg 侧注册一个 keelpkg 式的读取适配后对齐。
 
 ### 3.1 与 keel_auditor / keelpkg 的复用
 
-- **TSHA1-f 指纹**：`pack.tie` 用标准库 `std/tsha1.tie` 的 `tsha1f(bytes, 48)`
-  对 `.tieir` 计算单文件指纹（p.9.2.2 起由 FNV-1a 升级），签名 `fp` 字段存储；
-  `verify` 重算比对 → 篡改即拒绝——与
-  `compiler/keel/keel_auditor_fingerprint_tree`（per-file tsha1f）及
-  `keelpkg .zd.fp` 同一指纹模型（复用思路，不内联 keel 实现，仅统一指纹算法）。
+- **blake3 指纹（现行）**：`pack.tie` 用标准库 `std/blake3.tie` 的 `blake3_256`
+  对 `.tieir` 计算单文件指纹（历经 FNV-1a → TSHA1-f → **blake3**：全生态哈希
+  基线）；签名 `fp` 字段存储；`verify` 重算比对 → 篡改即拒绝。keel_auditor /
+  keelpkg 的 tsha1f 模型待随生态迁移对齐（复用思路，不内联 keel 实现）。
 - **标准库**：为让组件仓自包含可独立编译，`version.tie` / `bytes.tie` /
-  `tsha1.tie`（含 `base48.tie`、`tsha1_w48.tie`）vendor 进本仓 `std/`，import
-  改为 `./std/...`。
+  `blake3.tie` / `rans.tie` / `tzp.tie` / `zlib.tie`（含 `base48.tie`）vendor
+  进本仓 `std/`，import 改为 `./std/...`。
 
-*EN: default backend = file/dir registry (tar.gz + index.tie over `TIE_REGISTRY`),
+*EN: default backend = file/dir registry (.tpkg + index.tie over `TIE_REGISTRY`),
 servable over HTTP for the online form; keelpkg's td/zd file tree is the upstream
-formal target. TSHA1-f fingerprint reused from `keel_auditor`/`keelpkg` model.*
+formal target. Fingerprints use blake3 (ecosystem baseline; keelpkg's tsha1f model
+will be aligned during ecosystem migration).*
 
 ## 4. 当前环境的已知限制 / Known limitation (this toolchain)
 

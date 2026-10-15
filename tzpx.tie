@@ -1,0 +1,324 @@
+type tie<class>
+// tzpx.tie —— tzp 桥：项目树 ⇄ .tpkg 打包 / 解包（pack 与 install 共用）
+// ============================================================================
+// 打包：walk_dir 遍历 → keep_file 过滤 → 逐文件 file_read（二进制安全）
+//       → tzp_pack（rANS 熵层）→ 返回 .tpkg 字节串（落盘由调用方 file_write）。
+// 解包：读 .tpkg 字节 → tzp_unpack（全链校验）→ 逐条 mkdir_all + file_write 落盘。
+//
+// 路径规范：统一 '/' 分隔（tzp 的路径合法性与字节序排序依赖）；剥离 "./" / ".\" 前缀。
+// 安全：解包拒绝含 "." / ".." 段的路径（防目录穿越）；tzp 层已拒空路径 / 绝对路径 /
+//       反斜杠 / NUL。
+// 说明：file_read / file_write 实测对含 NUL 字节安全（2026-10-15 复核——历史版本的
+//       file_write NUL 截断问题已修）；读写直通道，无需 bytes 桥。
+// ============================================================================
+
+import "./std/tzp.tie" as tzp
+
+namespace tzpx {
+
+// ---------- 字符串工具（自备） ----------
+
+func slice(s: string, start: i64, end: i64) -> string {
+    var n: i64 = len(s)
+    var lo: i64 = start
+    if lo < 0 {
+        lo = 0
+    }
+    if lo > n {
+        lo = n
+    }
+    var hi: i64 = end
+    if hi < 0 {
+        hi = 0
+    }
+    if hi > n {
+        hi = n
+    }
+    var out: string = ""
+    var i: i64 = lo
+    while i < hi {
+        out = out + str_char(s, i)
+        i = i + 1
+    }
+    return out
+}
+
+func starts_with(s: string, prefix: string) -> bool {
+    var n: i64 = len(s)
+    var m: i64 = len(prefix)
+    if m > n {
+        return false
+    }
+    var i: i64 = 0
+    while i < m {
+        if str_char(s, i) != str_char(prefix, i) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+func ends_with(s: string, suffix: string) -> bool {
+    var n: i64 = len(s)
+    var m: i64 = len(suffix)
+    if m > n {
+        return false
+    }
+    var i: i64 = 0
+    while i < m {
+        if str_char(s, n - m + i) != str_char(suffix, i) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// ---------- 路径 ----------
+
+// 规范化：剥离 "./" / ".\" 前缀；'\' → '/'。
+pub func norm_rel(rel: string) -> string {
+    var r = rel
+    if starts_with(r, "./") {
+        r = slice(r, 2, len(r))
+    }
+    if starts_with(r, ".\\") {
+        r = slice(r, 2, len(r))
+    }
+    var sb = string_builder()
+    var i: i64 = 0
+    var n: i64 = len(r)
+    while i < n {
+        var b = str_byte(r, i) & 0xFF
+        if b == 92 {
+            sb_append_byte(sb, 47)
+        } else {
+            sb_append_byte(sb, b)
+        }
+        i = i + 1
+    }
+    return sb_build(sb)
+}
+
+// 上级目录（'/' 与 '\' 都认）；无分隔返回空串。
+func dir_name(p: string) -> string {
+    var cut: i64 = 0 - 1
+    var i: i64 = len(p) - 1
+    while i >= 0 {
+        var b = str_byte(p, i) & 0xFF
+        if b == 47 || b == 92 {
+            cut = i
+            i = 0 - 1
+        } else {
+            i = i - 1
+        }
+    }
+    if cut < 0 {
+        return ""
+    }
+    return slice(p, 0, cut)
+}
+
+// 路径段安全：任一空段 / "." / ".." 拒绝（防目录穿越）。
+func path_safe(rel: string) -> bool {
+    if rel == "" {
+        return false
+    }
+    var seg_start: i64 = 0
+    var i: i64 = 0
+    var n: i64 = len(rel)
+    while i <= n {
+        var at_end = (i == n)
+        var is_sep = false
+        if !at_end {
+            if (str_byte(rel, i) & 0xFF) == 47 {
+                is_sep = true
+            }
+        }
+        if at_end || is_sep {
+            var seg = slice(rel, seg_start, i)
+            if seg == "" {
+                return false
+            }
+            if seg == "." {
+                return false
+            }
+            if seg == ".." {
+                return false
+            }
+            seg_start = i + 1
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// ---------- 过滤 ----------
+
+// 文件是否纳入打包（排除规则；目录前缀精确匹配，产物按后缀）。
+// 注意：walk_dir 含目录条目——目录过滤由调用方以 file_exists（对目录恒 false）
+// 完成；本函数另对已知顶层目录的裸名做防御性排除。
+pub func keep_file(rel: string) -> bool {
+    if rel == "" {
+        return false
+    }
+    if rel == "." {
+        return false
+    }
+    // 已知顶层目录（裸名与带斜杠两种形态）
+    if rel == ".tie" {
+        return false
+    }
+    if starts_with(rel, ".tie/") {
+        return false
+    }
+    if rel == ".git" {
+        return false
+    }
+    if starts_with(rel, ".git/") {
+        return false
+    }
+    if rel == "target" {
+        return false
+    }
+    if starts_with(rel, "target/") {
+        return false
+    }
+    if rel == "dist" {
+        return false
+    }
+    if starts_with(rel, "dist/") {
+        return false
+    }
+    if rel == "_local_only" {
+        return false
+    }
+    if starts_with(rel, "_local_only/") {
+        return false
+    }
+    if rel == "pkg.exe" {
+        return false
+    }
+    // 产物后缀
+    if ends_with(rel, ".exe") {
+        return false
+    }
+    if ends_with(rel, ".tar.gz") {
+        return false
+    }
+    if ends_with(rel, ".tpkg") {
+        return false
+    }
+    if ends_with(rel, ".ll") {
+        return false
+    }
+    if ends_with(rel, ".o") {
+        return false
+    }
+    if ends_with(rel, ".obj") {
+        return false
+    }
+    if ends_with(rel, ".class") {
+        return false
+    }
+    if ends_with(rel, ".a") {
+        return false
+    }
+    if ends_with(rel, ".lib") {
+        return false
+    }
+    if ends_with(rel, ".dll") {
+        return false
+    }
+    if ends_with(rel, ".exp") {
+        return false
+    }
+    return true
+}
+
+// ---------- 打包 / 解包 ----------
+
+// 打包项目树。root 一般为 "."。返回 (ok, 字节串, 文件数, 明文总长)。
+pub func pack_tree(root: string, method: i64) -> (bool, string, i64, i64) {
+    var files = walk_dir(root)
+    var names = table_new_string()
+    var blobs = table_new_string()
+    var total: i64 = 0
+    var i: i64 = 0
+    while i < len(files) {
+        var rel = norm_rel(files[i])
+        // 目录条目过滤：file_exists 对目录恒 false（walk_dir 会返回目录条目）
+        var is_file = file_exists(files[i])
+        if is_file && keep_file(rel) {
+            var content = file_read(files[i])
+            table_push(names, rel)
+            table_push(blobs, content)
+        }
+        i = i + 1
+    }
+    // 目录条目清洗：walk_dir 含目录条目，且 file_exists 对目录也返回 true
+    // （不可据其辨型）。判据：凡被其他条目以 "<它>/" 前缀命中的条目 = 目录。
+    var fnames = table_new_string()
+    var fblobs = table_new_string()
+    var j: i64 = 0
+    while j < len(names) {
+        var is_dir_entry = false
+        var pfx = names[j] + "/"
+        var k2: i64 = 0
+        while k2 < len(names) {
+            if k2 != j {
+                if starts_with(names[k2], pfx) {
+                    is_dir_entry = true
+                }
+            }
+            k2 = k2 + 1
+        }
+        if !is_dir_entry {
+            table_push(fnames, names[j])
+            table_push(fblobs, blobs[j])
+        }
+        j = j + 1
+    }
+    var ti: i64 = 0
+    while ti < len(fblobs) {
+        total = total + len(fblobs[ti])
+        ti = ti + 1
+    }
+    var zp = tzp.tzp_pack(fnames, fblobs, method)
+    if zp == "" {
+        // 路径非法 / 重复时 tzp 返回空串（正常项目不应发生）
+        return (false, "", 0, 0)
+    }
+    return (true, zp, len(fnames), total)
+}
+
+// 解包 .tpkg 字节串到 dest 目录。返回 (ok, 解出文件数)。
+pub func extract(zp: string, dest: string) -> (bool, i64) {
+    var rr = tzp.tzp_unpack(zp)
+    if rr.0 == false {
+        return (false, 0)
+    }
+    var names = rr.1
+    var blobs = rr.2
+    var k: i64 = 0
+    while k < len(names) {
+        if !path_safe(names[k]) {
+            return (false, k)
+        }
+        var path = dest + "/" + names[k]
+        var dp = dir_name(path)
+        if dp != "" {
+            if !mkdir_all(dp) {
+                return (false, k)
+            }
+        }
+        if !file_write(path, blobs[k]) {
+            return (false, k)
+        }
+        k = k + 1
+    }
+    return (true, k)
+}
+
+}

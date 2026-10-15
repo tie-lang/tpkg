@@ -10,7 +10,7 @@ type tie<logic>
 //   tie update [包名]     重新解析依赖并更新 tie.lock
 //   tie build             编译项目（调用 tie 编译器）
 //   tie run               运行项目
-//   tie publish           打包发布（tar.gz + git tag/push）
+//   tie publish           打包发布（.tpkg + git tag/push）
 //   tie search <关键字>   搜索注册表 index.tie
 //   tie info <包名>       查询注册表包信息
 //   tie help              显示帮助
@@ -18,7 +18,7 @@ type tie<logic>
 // 架构：本文件只做「CLI 子命令分派 + 编排」，具体能力按模块分工——
 //   manifest（./mf.tie）   tie.pkg 清单解析（tie:data 文本 → 依赖项）
 //   deps（./dp.tie）       依赖安装/解析（path/git/registry 三源 + 锁文件落地）
-//   publish（./pb.tie）    打包发布（tar.gz + git tag/push）
+//   publish（./pb.tie）    打包发布（.tpkg + git tag/push）
 //   search（./sr.tie）     注册表搜索/信息查询
 // Rust 侧只做两件事：子命令识别 + exec pkg.exe（自举：包管理器 100% tie 写）。
 //
@@ -123,8 +123,8 @@ func help_text() -> string {
            "  tie update [包名]      重新解析依赖并更新 tie.lock\n" +
            "  tie build              编译项目（调用 tie 编译器）\n" +
            "  tie run                运行项目（tie <main 文件>）\n" +
-           "  tie publish            打包发布（tar.gz + git tag/push）\n" +
-           "  tie pack               打包分发单元（S3.2：tieir + signature + tar.gz）\n" +
+           "  tie publish            打包发布（.tpkg + git tag/push）\n" +
+           "  tie pack               打包分发单元（tieir + signature + .tpkg）\n" +
            "  tie verify <包名>      校验已安装包（S3.2：signature 哈希比对）\n" +
            "  tie search <关键字>    搜索注册表（TIE_REGISTRY 可指定基址）\n" +
            "  tie info <包名>        查询注册表包信息\n" +
@@ -658,10 +658,11 @@ func cmd_publish() -> i64 {
     if main_file == "" {
         main_file = "main.tie"
     }
-    return pb.publish(name, version, main_file)
+    var exports = mf.field(src, "exports")
+    return pb.publish(name, version, main_file, exports)
 }
 
-// S3.2：tie pack —— 打包分发单元（tieir + signature + tar.gz）。
+// S3.2：tie pack —— 打包分发单元（tieir + signature + .tpkg）。
 // 多文件包（L1c）：tie.pkg 的 exports 字段声明附加导出入口（逗号分隔），
 // 包内模块互相 import 私有，对外只暴露入口声明面。
 func cmd_pack() -> i64 {

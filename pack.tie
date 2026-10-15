@@ -7,26 +7,26 @@ type tie<class>
 //   2. 校验清单字段（name/version/main 必备；exports 可选 = 附加导出入口）；
 //   3. 编译入口文件为 .tieir（调用 tiec --tieir-out，S3.2 新增编译器选项），
 //      多文件包（L1c）：包内模块互相 import 私有，对外只暴露入口声明面；
-//   4. 计算 .tieir 的 **TSHA1-f** 指纹（n=48，标准库 std/tsha1.tie，与
-//      keel_auditor.fingerprint_tree / keelpkg `.zd.fp` 同一指纹模型）+
+//   4. 计算 .tieir 的 **blake3** 指纹（64 hex，std/blake3.tie——全生态哈希基线）+
 //      生成 signature 文件（P5c：fp + 签名者信息；私钥签名/公钥验证的完整
 //      RSA/ED25519 超出 tie 纯文本能力，第一版 = 内容指纹 + 签名者信息，
-//      安装时重算指纹比对防篡改——指纹即完整性底线，p.9.2.2 由 FNV-1a 升级为
-//      TSHA1-f）；
-//   5. 打 tar.gz 到 .tie/dist/<name>-<version>.tar.gz（首层为项目文件）。
+//      安装时重算指纹比对防篡改——指纹即完整性底线）；
+//   5. 打 **tzp** 容器到 .tie/dist/<name>-<version>.tpkg（tzpx.pack_tree；
+//      rANS 熵层；替代历史 tar.gz——安装侧解包走 tzp_unpack，绕开 untar_gz 限制）。
 //
-// `tie verify <目录>`：校验已安装包（signature 存在 + .tieir TSHA1-f 指纹匹配）。
+// `tie verify <目录>`：校验已安装包（signature 存在 + .tieir blake3 指纹匹配）。
 //
 // tie 约束处理（重要）：
-// - 本模块 import std/bytes.tie（读字节）与 std/tsha1.tie（TSHA1-f 指纹）；
-//   不 import 其它 pkg 模块（main 分派）；
+// - 本模块 import std/blake3.tie（指纹）、std/tzp.tie（熵层档常量）与
+//   ./tzpx.tie（树 ⇄ .tpkg 桥）；不 import 其它 pkg 模块（main 分派）；
 // - 表参数元素类型静态未知：跨模块只传字符串/标量；bytes.read 返回 table<i64>
 //   在函数内处理（本文件顶层路径全局函数不可收表参，故指纹读取在命名空间内）；
 // - && 非短路：边界判断与下标分开；
 // - 无 continue/break/递归：迭代 + return 提前退出。
 
-import "./std/bytes.tie"
-import "./std/tsha1.tie"
+import "./std/blake3.tie" as blake3
+import "./std/tzp.tie" as tzp
+import "./tzpx.tie" as tzpx
 
 namespace pack {
     // ================= 通用字符串工具（自备） =================
@@ -147,36 +147,24 @@ namespace pack {
         return true
     }
 
-    // ================= TSHA1-f 指纹（P5c 载体，与 keel_auditor / keelpkg 同模型） =================
+    // ================= blake3 指纹（P5c 载体；全生态哈希基线） =================
 
-    // 字节表（bytes.read 返回的 table<i64>，元素 0..255）→ 二进制安全字符串
-    // （tsha1f 的输入；与 keel_auditor.bytes_to_str / keelpkg 同款）。
-    func fp_bytes(t: table<i64>) -> string {
-        var sb = string_builder()
-        var i: i64 = 0
-        while i < len(t) {
-            sb_append_byte(sb, t[i])
-            i = i + 1
-        }
-        return sb_build(sb)
-    }
-
-    // 单文件 TSHA1-f 指纹（n=48，48 进制）。读文件字节 → tsha1f；失败/空返回空串。
+    // 单文件 blake3 指纹（64 hex）。file_read 对任意字节安全（含 NUL——实测）。
     pub func file_fp(path: string) -> string {
         if !file_exists(path) {
             return ""
         }
-        var t = bytes.read(path)
-        if len(t) == 0 {
+        var s = file_read(path)
+        if s == "" {
             return ""
         }
-        return tsha.tsha1f(fp_bytes(t), 48)
+        return blake3.blake3_256(s)
     }
 
     // ================= signature（P5c） =================
 
     // 生成 signature 文本：包名/版本/内容指纹/签名者（TIE_SIGNER 环境变量，
-    // 缺省 anonymous）。签名者信息为明文——第一版以 TSHA1-f 指纹为完整性底线，
+    // 缺省 anonymous）。签名者信息为明文——第一版以 blake3 指纹为完整性底线，
     // 公钥验签（注册表持公钥）标注后续（见 docs/PACKAGE.md 未决）。
     pub func signature_text(name: string, version: string, fp: string) -> string {
         var signer = get_env("TIE_SIGNER")
@@ -190,7 +178,7 @@ namespace pack {
                "signer: " + signer + "\n"
     }
 
-    // 解析 signature 文本的 fp 字段（TSHA1-f 指纹串，读至行尾）；未找到返回空串。
+    // 解析 signature 文本的 fp 字段（blake3 指纹串，读至行尾）；未找到返回空串。
     pub func signature_fp(sig: string) -> string {
         var marker = "fp: "
         var q = find(sig, marker)
@@ -288,7 +276,7 @@ namespace pack {
             print_err("[pkg] tieir 产物缺失: " + tieir_name + "\n")
             return 1
         }
-        // 4) 计算内容指纹 + 生成 signature（P5c：TSHA1-f）
+        // 4) 计算内容指纹 + 生成 signature（P5c：blake3）
         var fp = file_fp(tieir_name)
         if fp == "" {
             print_err("[pkg] 计算 tieir 指纹失败\n")
@@ -299,100 +287,35 @@ namespace pack {
             print_err("[pkg] 写入 signature 失败\n")
             return 1
         }
-        println("[pkg] 已生成 " + tieir_name + "（TSHA1-f 指纹 " + fp + "）")
+        println("[pkg] 已生成 " + tieir_name + "（blake3 指纹 " + fp + "）")
         println("[pkg] 已生成 signature（签名者: " + get_env("TIE_SIGNER") + "）")
-        // 5) 重建 staging 目录（无条件清旧）
-        var staging = ".tie/dist-stage"
-        remove_dir_all(staging)
-        if !mkdir_all(staging) {
-            print_err("[pkg] 创建 staging 失败: " + staging + "\n")
+        // 5) 打包为 tzp 容器（.tpkg；rANS 熵层）——收集/过滤/封装在 tzpx。
+        var pr = tzpx.pack_tree(".", tzp.method_rans())
+        if pr.0 == false {
+            print_err("[pkg] tzp 打包失败（路径非法或重复）\n")
             return 1
         }
-        // 6) 收集项目文件并复制（排除 .tie/.git/target/pkg/dist 与产物）
-        var files = walk_dir(".")
-        var fi: i64 = 0
-        var copied: i64 = 0
-        while fi < len(files) {
-            var rel = strip_dotrel(files[fi])
-            if keep_for_pack(rel) {
-                var dest = path_join(staging, rel)
-                var parent = path_dirname(dest)
-                if parent == "" {
-                    parent = staging
-                }
-                if !mkdir_all(parent) {
-                    print_err("[pkg] 创建目录失败: " + parent + "\n")
-                    return 1
-                }
-                if !file_copy(rel, dest) {
-                    print_err("[pkg] 复制失败: " + rel + "\n")
-                    return 1
-                }
-                copied = copied + 1
-            }
-            fi = fi + 1
-        }
-        println("[pkg] 收集文件 " + to_string(copied) + " 个")
-        // 7) 打 tar.gz（首层为项目文件；安装解压后直落 .tie/deps/<name>/）
+        // 6) 落盘 .tpkg
         if !mkdir_all(".tie/dist") {
             print_err("[pkg] 创建 .tie/dist 失败\n")
             return 1
         }
-        var out = ".tie/dist/" + name + "-" + version + ".tar.gz"
+        var out = ".tie/dist/" + name + "-" + version + ".tpkg"
         if file_exists(out) {
             file_delete(out)
         }
-        var trc = exec_code("tar -czf " + out + " -C " + staging + " .")
-        remove_dir_all(staging)
-        if trc != 0 {
-            print_err("[pkg] tar 打包失败（退出码 " + to_string(trc) + "，请确认系统 tar 可用）\n")
+        if !file_write(out, pr.1) {
+            print_err("[pkg] 写入 .tpkg 失败: " + out + "\n")
             return 1
         }
-        println("[pkg] 已打包: " + out)
-        println("[pkg] 分发单元 = tieir + 源码 + signature（P5c 安装时校验哈希）")
+        println("[pkg] 已打包: " + out + "（" + to_string(pr.2) + " 文件，" + to_string(pr.3) + " → " + to_string(len(pr.1)) + " 字节）")
+        println("[pkg] 分发单元 = .tpkg（tzp 容器：tieir + 源码 + signature）")
         return 0
-    }
-
-    // 规范化 walk_dir 的 Windows `.\` / Unix `./` 前缀（去除），便于前缀判定与路径拼接。
-    func strip_dotrel(rel: string) -> string {
-        if starts_with(rel, "./") {
-            return slice(rel, 2, len(rel))
-        }
-        if starts_with(rel, ".\\") {
-            return slice(rel, 2, len(rel))
-        }
-        return rel
-    }
-
-    // 文件是否纳入发布包（与 publish.keep_for_publish 同规则，排除产物目录）。
-    func keep_for_pack(rel: string) -> bool {
-        if starts_with(rel, ".tie") {
-            return false
-        }
-        if starts_with(rel, ".git") {
-            return false
-        }
-        if starts_with(rel, "target") {
-            return false
-        }
-        if starts_with(rel, "pkg") {
-            return false
-        }
-        if starts_with(rel, "dist") {
-            return false
-        }
-        if ends_with(rel, ".exe") {
-            return false
-        }
-        if ends_with(rel, ".tar.gz") {
-            return false
-        }
-        return true
     }
 
     // ================= tie verify 主流程（P5c 安装校验） =================
 
-    // 校验已安装包目录：signature 存在 + .tieir TSHA1-f 指纹匹配 + 包名一致。
+    // 校验已安装包目录：signature 存在 + .tieir blake3 指纹匹配 + 包名一致。
     // dir 为包目录（如 .tie/deps/my_pkg）；name 为期望包名。
     // 返回 0 通过 / 1 失败（已打印原因）。
     pub func verify(dir: string, name: string) -> i64 {
@@ -425,7 +348,7 @@ namespace pack {
             print_err("[pkg] 校验失败: 包内无 .tieir 分发单元\n")
             return 1
         }
-        // TSHA1-f 指纹比对（完整性底线；防篡改/防损坏；TSHA1-f 与 keel_auditor 同款）。
+        // blake3 指纹比对（完整性底线；防篡改/防损坏）。
         // tieir_file 已是完整相对路径，直接读取。
         var fp = file_fp(tieir_file)
         if fp == "" {
@@ -441,7 +364,7 @@ namespace pack {
             print_err("[pkg] 校验失败: 指纹不匹配（" + fp + " ≠ signature " + sfp + "）——包已被篡改\n")
             return 1
         }
-        println("[pkg] 校验通过: " + name + "（" + tieir_file + " TSHA1-f 指纹 " + fp + " 匹配）")
+        println("[pkg] 校验通过: " + name + "（" + tieir_file + " blake3 指纹 " + fp + " 匹配）")
         return 0
     }
 }

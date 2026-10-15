@@ -7,7 +7,7 @@ type tie<class>
 //       * path 源（"path:目录"）：copy_dir 复制本地目录；
 //       * git 源（git+... / 含 .git / ssh 形式）：fetch_git 浅克隆；
 //       * registry 源（裸版本/约束）：resolve_registry_version 选版本 +
-//         fetch_registry 下载解压 tar.gz。
+//         fetch_registry 下载 .tpkg 并解包（tzpx.extract）。
 //   - **依赖解析**（resolve）：BFS + 队头指针（无递归）递归读取依赖的 tie.pkg
 //     的 dependencies → 去重（同名取满足全部约束的最高版本，registry 冲突时
 //     按约束集重选）→ 冲突检测（无满足版本报错）；深度限制 3 防环；
@@ -661,15 +661,17 @@ namespace deps {
                 print_err("[pkg]  创建目录失败: " + dir + "\n")
                 return false
             }
-            var tmp = dir + "/" + ver + ".tar.gz"
+            var tmp = dir + "/" + ver + ".tpkg"
             if !http_get_file(src, tmp) {
                 print_err("[pkg]  下载失败: " + src + "\n")
                 return false
             }
             // 无条件清旧目标（目录存在与否都删，幂等）
             remove_dir_all(staging)
-            if !untar_gz(tmp, staging) {
-                print_err("[pkg]  解压失败: " + tmp + "\n")
+            var zb = file_read(tmp)
+            var ex = tzpx.extract(zb, staging)
+            if ex.0 == false {
+                print_err("[pkg]  .tpkg 解包失败: " + tmp + "\n")
                 return false
             }
         }
@@ -679,7 +681,8 @@ namespace deps {
 }
 
 // 见文件头「import 约定」：import 必须位于文件末尾（自身命名空间在前），
-// 使 collect_ns_paths 的命名空间顺序为 [deps, fetch, version, lock]，
+// 使 collect_ns_paths 的命名空间顺序为 [deps, fetch, version, lock, tzpx]，
 // 保证 main 的别名 dp 正确映射到本文件的 deps 命名空间。
 import "./fetch.tie" as ft;
 import "./lock.tie" as lk;
+import "./tzpx.tie" as tzpx;

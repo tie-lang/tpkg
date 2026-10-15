@@ -1,18 +1,15 @@
 type tie<class>
 // publish.tie —— 发布模块（Harbor M6 包管理器 E4）
 //
-// 职责：`tie publish` 把当前项目打包为 tar.gz 并打 git tag / push：
-//   1. 读 tie.pkg（由 main 读好 name/version/main 传入，本模块不重复解析清单）；
-//   2. 收集项目文件（walk_dir 递归相对路径，排除 .tie/.git/target/pkg/dist 与
-//      .exe/.tar.gz 产物）复制到 staging 目录；
-//   3. 用系统 tar（exec_code `tar -czf <out> -C <staging> .`）打 tar.gz 到
-//      `.tie/dist/<name>-<version>.tar.gz`（首层为项目文件，registry 解压直落）；
-//   4. git tag v<version> + git push --tags（best-effort，非 git 仓库时提示跳过）；
+// 职责：`tie publish` 打包（复用 pack，与 tie pack 完全同源：tieir + signature +
+// .tpkg）并打 git tag / push：
+//   1. 读 tie.pkg（由 main 读好 name/version/main/exports 传入）；
+//   2. 调用 pack.pack 完成打包（tzp 容器链路）；
+//   3. git tag v<version> + git push --tags（best-effort，非 git 仓库时提示跳过）；
 //      HTTP 注册表上传接口留占位（见 docs/plans/package-manager.md §3.9）。
 //
 // tie 约束处理（重要）：
-// - 本模块**无 import**（独立成文件，避免多模块重复内联同一命名空间）；
-//   字符串工具自备；walk_dir 返回的局部表可下标读写；
+// - 打包复用 pack 模块（import 置于文件末尾——命名空间收集顺序 [publish, pack]）；
 // - **tie 的 && 非短路**：边界判断与下标不写进同一条件，用嵌套 if；
 // - 无 continue/break：迭代 + return 提前退出。
 
@@ -138,7 +135,7 @@ namespace publish {
     // ================= 发布主流程 =================
 
     // 执行发布：打 tar.gz + git tag/push。name/version/main 由 main 从 tie.pkg 读出传入。
-    pub func publish(name: string, version: string, main_file: string) -> i64 {
+    pub func publish(name: string, version: string, main_file: string, exports: string) -> i64 {
         // 1) 校验清单字段
         if name == "" {
             print_err("[pkg] tie.pkg 缺少 name 字段\n")
@@ -157,57 +154,11 @@ namespace publish {
             return 1
         }
 
-        // 2) 重建 staging 目录（无条件清旧：编译路径 file_exists 对目录恒 false）
-        var staging = ".tie/dist-stage"
-        remove_dir_all(staging)
-        if !mkdir_all(staging) {
-            print_err("[pkg] 创建 staging 失败: " + staging + "\n")
-            return 1
+        // 2) 打包（复用 pack：tieir + signature + .tpkg；失败原样返回）
+        var prc = pk.pack(name, version, main_file, exports)
+        if prc != 0 {
+            return prc
         }
-
-        // 3) 收集项目文件并复制到 staging（排除 .tie/.git/target/pkg/dist 与产物）
-        var files = walk_dir(".")
-        var fi: i64 = 0
-        var copied: i64 = 0
-        while fi < len(files) {
-            var rel = strip_dotrel(files[fi])
-            if keep_for_publish(rel) {
-                var dest = path_join(staging, rel)
-                var parent = path_dirname(dest)
-                if parent == "" {
-                    parent = staging
-                }
-                if !mkdir_all(parent) {
-                    print_err("[pkg] 创建目录失败: " + parent + "\n")
-                    return 1
-                }
-                if !file_copy(rel, dest) {
-                    print_err("[pkg] 复制失败: " + rel + "\n")
-                    return 1
-                }
-                copied = copied + 1
-            }
-            fi = fi + 1
-        }
-        println("[pkg] 收集文件 " + to_string(copied) + " 个")
-
-        // 4) 打 tar.gz（首层为项目文件；registry 解压后直接落到 .tie/deps/<name>/）
-        if !mkdir_all(".tie/dist") {
-            print_err("[pkg] 创建 .tie/dist 失败\n")
-            return 1
-        }
-        var out = ".tie/dist/" + name + "-" + version + ".tar.gz"
-        if file_exists(out) {
-            file_delete(out)
-        }
-        var rc = exec_code("tar -czf " + out + " -C " + staging + " .")
-        // 清理 staging（无论成败；无条件删）
-        remove_dir_all(staging)
-        if rc != 0 {
-            print_err("[pkg] tar 打包失败（退出码 " + to_string(rc) + "，请确认系统 tar 可用）\n")
-            return 1
-        }
-        println("[pkg] 已打包: " + out)
 
         // 5) git tag + push（best-effort；HTTP 注册表上传接口留占位）
         var tg = exec_code("git tag v" + version)
@@ -224,41 +175,7 @@ namespace publish {
         return 0
     }
 
-    // 规范化 walk_dir 的 Windows `.\` / Unix `./` 前缀（去除），便于前缀判定与路径拼接。
-    func strip_dotrel(rel: string) -> string {
-        if starts_with(rel, "./") {
-            return slice(rel, 2, len(rel))
-        }
-        if starts_with(rel, ".\\") {
-            return slice(rel, 2, len(rel))
-        }
-        return rel
-    }
-
-    // 文件是否纳入发布包：排除工作区缓存/构建产物目录与生成文件。
-    // 用前缀匹配（同时兼容 / 与 \ 分隔符），保守排除。
-    func keep_for_publish(rel: string) -> bool {
-        if starts_with(rel, ".tie") {
-            return false
-        }
-        if starts_with(rel, ".git") {
-            return false
-        }
-        if starts_with(rel, "target") {
-            return false
-        }
-        if starts_with(rel, "pkg") {
-            return false
-        }
-        if starts_with(rel, "dist") {
-            return false
-        }
-        if ends_with(rel, ".exe") {
-            return false
-        }
-        if ends_with(rel, ".tar.gz") {
-            return false
-        }
-        return true
-    }
 }
+
+// 打包复用 pack 模块（与 tie pack 同源链路）。
+import "./pack.tie" as pk;

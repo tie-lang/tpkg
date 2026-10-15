@@ -7,10 +7,10 @@ type tie<class>
 //     git）。拉取用系统 git（exec_code 执行 `git clone --depth 1 [--branch <tag>]`），
 //     认证走用户 ssh 密钥，tie 不碰凭据；
 //   - registry 源 spec：裸版本（"1.0.0"）或约束（"^1.2" / ">=1.0" / "*"）。URL 约定
-//     `<registry_base>/packages/<name>/<version>.tar.gz`，registry_base 默认
+//     `<registry_base>/packages/<name>/<version>.tpkg`，registry_base 默认
 //     https://pkg.tie-lang.org，可用环境变量 TIE_REGISTRY 覆盖。区间约束用 http_get
 //     拉 `<base>/index.tie` 筛出满足条件的最高版本；包文件用 http_get_file 下载 +
-//     untar_gz 解压。
+//     tzpx.extract（tzp 容器）解包落盘。
 //
 // tie 约束处理（重要）：
 // - 本模块全部对外函数只收/返**字符串**（跨模块传参规范，规避表参数限制）；
@@ -294,7 +294,7 @@ namespace fetch {
 
     // 包文件下载 URL：基址 + /packages/<name>/<version>.tar.gz。
     pub func pkg_url(name: string, ver: string) -> string {
-        return registry_base() + "/packages/" + name + "/" + ver + ".tar.gz"
+        return registry_base() + "/packages/" + name + "/" + ver + ".tpkg"
     }
 
     // 注册表索引 URL：基址 + /index.tie。
@@ -475,16 +475,18 @@ namespace fetch {
             return false
         }
         var url = pkg_url(name, ver)
-        // 下载文件暂存到缓存目录（与解压目标同父目录）
-        var tmp = dir + "/" + ver + ".tar.gz"
+        // 下载 .tpkg 暂存到缓存目录（与解包目标同父目录）
+        var tmp = dir + "/" + ver + ".tpkg"
         if !http_get_file(url, tmp) {
             print_err("[pkg]  下载失败: " + url + "\n")
             return false
         }
-        // 无条件清旧目标再解压（目录存在与否都删，幂等）
+        // 无条件清旧目标再解包（目录存在与否都删，幂等）
         remove_dir_all(dest)
-        if !untar_gz(tmp, dest) {
-            print_err("[pkg]  解压失败: " + tmp + "\n")
+        var zb = file_read(tmp)
+        var ex = tzpx.extract(zb, dest)
+        if ex.0 == false {
+            print_err("[pkg]  .tpkg 解包失败: " + tmp + "\n")
             return false
         }
         return true
@@ -492,7 +494,8 @@ namespace fetch {
 }
 
 // 见文件头「import 约定」：import 必须位于文件末尾（自身命名空间在前），
-// 使 collect_ns_paths 收集的命名空间顺序为 [fetch, version]，
+// 使 collect_ns_paths 收集的命名空间顺序为 [fetch, version, tzpx]，
 // 保证导入方别名（如 deps 的 ft）正确映射到本文件的 fetch 命名空间。
 // 注：文件末尾的 import 无后续语句，ASI 不触发，须显式加分号。
 import "./std/version.tie" as ver;
+import "./tzpx.tie" as tzpx;
