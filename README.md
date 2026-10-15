@@ -48,6 +48,8 @@ tiec main.tie -o pkg.exe --no-cache   # --no-cache 保证产出，避免 tiec �
 - **变体引擎**：档内场景开关（`--static` / `--serverless` / `--sdk` / `--robotics` 等，
   与 ch05 各档变体行一致）；互斥变体生成时拒绝（如 `--static`×`--ssr`）；
   `cli --script` 生成轻档（根扁平单文件）。
+- **领域示例文件**：每档生成 1-3 个代表性示例（六型内容：td/md/csv/cir/case 数据与
+  prog/libfn 代码骨架——如 circuit 的 SPICE 网表、data 的 CSV 样例、cli 的子命令与冒烟测试）。
 
 ## License
 

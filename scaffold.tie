@@ -414,6 +414,205 @@ func sc_entry(name: string, kind: string, main_rel: string) -> string {
 }
 
 // ============================================================================
+// 三·五、领域示例文件（每档 1-3 个代表性示例；内容型：td/md/csv/cir/case/prog/libfn）
+// ============================================================================
+// 数据格式：每档 "rel|type|blurb;rel2|type|blurb;..."（"|" 三段；";" 分条目）。
+
+func sc_extra(kind: string) -> string {
+    if kind == "website" { return "src/pages.td|td|页面与路由表（示例）;content/home.md|md|首页内容（示例）" }
+    if kind == "backend" { return "src/routes/hello.tie|libfn|路由处理函数（示例）;config/dev.td|td|开发环境配置（示例）" }
+    if kind == "app" { return "src/ui/home.tie|libfn|视图/组件（示例）" }
+    if kind == "cli" { return "src/commands/hello.tie|libfn|子命令实现（示例）;tests/smoke.tie|prog|冒烟测试（示例）" }
+    if kind == "lib" { return "examples/quickstart.tie|prog|快速上手示例;tests/basic.tie|prog|基础测试（示例）" }
+    if kind == "bindings" { return "tests/kat.md|md|跨语言对拍（KAT）说明" }
+    if kind == "plugin" { return "src/register.tie|libfn|插件注册入口（示例）" }
+    if kind == "language" { return "tests/cases/example.case|case|用例夹具（正例格式示例）" }
+    if kind == "conformance" { return "cases/example.case|case|用例（正例格式示例）" }
+    if kind == "ops" { return "cfg/dev.td|td|环境与部署配置（示例）" }
+    if kind == "os" { return "mk/rules.td|td|构建规则（示例）" }
+    if kind == "embedded" { return "arch/board.td|td|板级参数（示例）;drivers/gpio.tie|libfn|驱动骨架（示例）" }
+    if kind == "spec" { return "source/outline.md|md|规范目录（示例）" }
+    if kind == "doc" { return "data/example.td|td|图表数据（示例）" }
+    if kind == "book" { return "src/chapters/ch01.md|md|第一章（示例）" }
+    if kind == "paper" { return "src/sections/abstract.md|md|摘要（示例）" }
+    if kind == "slides" { return "src/deck.td|td|页表（示例）" }
+    if kind == "course" { return "slides/lesson01.md|md|课件（示例）;exercises/set01.md|md|练习（示例）" }
+    if kind == "data" { return "schema/example.td|td|结构声明（示例）;data/sample.csv|csv|数据样例" }
+    if kind == "ml" { return "arch/model.td|td|模型结构（示例）" }
+    if kind == "db" { return "schema/tables.td|td|表结构（示例）;seed/initial.td|td|初始数据（示例）" }
+    if kind == "simulation" { return "params/default.td|td|场景参数（示例）" }
+    if kind == "experiment" { return "protocol/plan.md|md|实验方案（模板）" }
+    if kind == "hardware" { return "src/params.td|td|设计参数（示例）;sim/testbench.md|md|测试台说明（示例）" }
+    if kind == "circuit" { return "sim/example.cir|cir|SPICE 仿真（示例）" }
+    if kind == "modeling" { return "src/dimensions.td|td|尺寸参数（示例）" }
+    if kind == "art" { return "assets/palette.td|td|调色板（示例）" }
+    if kind == "photo" { return "catalog/index.td|td|编目（示例）" }
+    if kind == "comic" { return "script/ep01.md|md|剧本（示例）" }
+    if kind == "music" { return "arrangement/song.td|td|编排（示例）" }
+    if kind == "score" { return "score/example.md|md|乐谱源（示例）" }
+    if kind == "audio" { return "timeline/arrangement.td|td|时间线编排（示例）" }
+    if kind == "video" { return "timeline/edit.td|td|剪辑时间线（示例）" }
+    if kind == "animation" { return "scenes/sc01.md|md|场景/分镜（示例）" }
+    if kind == "3d" { return "scenes/demo.td|td|场景定义（示例）" }
+    return ""
+}
+
+// 按单字符分隔符切分（sep 为单字符字符串）。
+func sc_split_sep(s: string, sep: string) -> table<string> {
+    var out = table_new_string()
+    var cur: string = ""
+    var i: i64 = 0
+    var n: i64 = len(s)
+    while i < n {
+        var c = str_char(s, i)
+        if c == sep {
+            if cur != "" {
+                table_push(out, cur)
+            }
+            cur = ""
+        } else {
+            cur = cur + c
+        }
+        i = i + 1
+    }
+    if cur != "" {
+        table_push(out, cur)
+    }
+    return out
+}
+
+// 单字符首次出现位置（无则 -1）。
+func sc_find_char(s: string, c: string) -> i64 {
+    var i: i64 = 0
+    while i < len(s) {
+        if str_char(s, i) == c {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// 文件名 stem（去目录去扩展名；'-' '.' → '_'）。
+func sc_stem(rel: string) -> string {
+    var cut: i64 = 0 - 1
+    var i: i64 = len(rel) - 1
+    while i >= 0 {
+        var c = str_char(rel, i)
+        if c == "/" || c == "\\" {
+            cut = i
+            i = 0 - 1
+        } else {
+            i = i - 1
+        }
+    }
+    var s2 = rel
+    if cut >= 0 {
+        s2 = slice(rel, cut + 1, len(rel))
+    }
+    var dot: i64 = 0 - 1
+    i = 0
+    while i < len(s2) {
+        if str_char(s2, i) == "." {
+            dot = i
+        }
+        i = i + 1
+    }
+    if dot >= 0 {
+        s2 = slice(s2, 0, dot)
+    }
+    return ns_safe(s2)
+}
+
+// 示例内容生成（六型）。
+func sc_gen_content(kind: string, rel: string, ftype: string, blurb: string) -> string {
+    if ftype == "td" {
+        return "// " + rel + " —— " + blurb + "\n" +
+               "// 由 tpkg new --kind=" + kind + " 生成；按需替换为真实内容。\n" +
+               "[\n" +
+               "    \"example\": \"value\",\n" +
+               "    \"note\": \"" + blurb + "\",\n" +
+               "]\n"
+    }
+    if ftype == "md" {
+        return "# " + blurb + "\n\n" +
+               "（" + kind + " 示例文件，由 tpkg new 生成；按需替换。）\n\n" +
+               "- 要点一\n" +
+               "- 要点二\n"
+    }
+    if ftype == "csv" {
+        return "id,name,value\n1,sample,42\n2,example,7\n"
+    }
+    if ftype == "cir" {
+        return "* SPICE 仿真示例（" + kind + "，由 tpkg new 生成——替换为真实网表）\n" +
+               "V1 in 0 DC 5\n" +
+               "R1 in out 1k\n" +
+               "C1 out 0 1u\n" +
+               ".op\n" +
+               ".end\n"
+    }
+    if ftype == "case" {
+        return "# 用例夹具（示例格式，随用例约定演进）\n" +
+               "INPUT: hello\n" +
+               "EXPECT: hello\n"
+    }
+    if ftype == "prog" {
+        return "type tie<logic>\n" +
+               "// " + rel + " —— " + blurb + "\n" +
+               "// 由 tpkg new --kind=" + kind + " 生成（示例程序）。\n" +
+               "\n" +
+               "func main() {\n" +
+               "    println(\"" + blurb + "\")\n" +
+               "}\n"
+    }
+    if ftype == "libfn" {
+        var ns = sc_stem(rel)
+        return "type tie<class>\n" +
+               "// " + rel + " —— " + blurb + "\n" +
+               "// 由 tpkg new --kind=" + kind + " 生成（模块骨架，按需实现）。\n" +
+               "\n" +
+               "namespace " + ns + " {\n" +
+               "    pub func example() -> string {\n" +
+               "        return \"" + blurb + "\"\n" +
+               "    }\n" +
+               "}\n"
+    }
+    return ""
+}
+
+// 写领域示例文件；返回失败计数。
+func sc_extra_write(dir: string, kind: string) -> i64 {
+    var spec = sc_extra(kind)
+    if spec == "" {
+        return 0
+    }
+    var failed: i64 = 0
+    var items = sc_split_sep(spec, ";")
+    var i: i64 = 0
+    while i < len(items) {
+        var e = items[i]
+        var p1 = sc_find_char(e, "|")
+        if p1 >= 0 {
+            var rel = slice(e, 0, p1)
+            var rest = slice(e, p1 + 1, len(e))
+            var p2 = sc_find_char(rest, "|")
+            if p2 >= 0 {
+                var ftype = slice(rest, 0, p2)
+                var blurb = slice(rest, p2 + 1, len(rest))
+                var content = sc_gen_content(kind, rel, ftype, blurb)
+                if content != "" {
+                    if !sc_write(dir + "/" + rel, content) {
+                        failed = failed + 1
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    return failed
+}
+
+// ============================================================================
 // 四、生成（官方档）
 // ============================================================================
 
@@ -544,6 +743,10 @@ func sc_impl(dir: string, name: string, kind: string, variants: table<string>) -
     }
     if !sc_write(dir + "/" + entry_rel, sc_entry(name, kind, entry_rel)) {
         failed = failed + 1
+    }
+    // 领域示例文件（轻档跳过）
+    if light == false {
+        failed = failed + sc_extra_write(dir, kind)
     }
     return failed
 }
