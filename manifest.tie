@@ -214,6 +214,62 @@ namespace manifest {
         return find_from(src, "]", dstart)
     }
 
+    // 提取 `"key": [ "a", "b", ]` 形式数组字段的全部字符串元素，拼成逗号
+    // 分隔序列返回（与 deps 的跨模块传参约定一致）；未找到该键返回空串。
+    // 数组内的行注释（// ...）跳过；元素按出现顺序排列。
+    pub func list_field(src: string, key: string) -> string {
+        var marker = "\"" + key + "\": ["
+        var q = find(src, marker)
+        if q < 0 {
+            return ""
+        }
+        var astart = q + len(marker)
+        var aend = find_from(src, "]", astart)
+        if aend < 0 {
+            return ""
+        }
+        var out: string = ""
+        var p = astart
+        var done: bool = false
+        while p < aend && !done {
+            if str_char(src, p) == "\"" {
+                // 元素：取到下一个引号为止
+                var qe = find_from(src, "\"", p + 1)
+                if qe < 0 || qe > aend {
+                    done = true
+                } else {
+                    var item = slice(src, p + 1, qe)
+                    if len(out) > 0 {
+                        out = out + ","
+                    }
+                    out = out + item
+                    p = qe + 1
+                }
+            } else {
+                // 注释与空白：遇 "//" 跳到行尾，其余逐字符推进
+                var is_comment: bool = false
+                if p + 1 < aend {
+                    if str_char(src, p + 1) == "/" {
+                        if str_char(src, p) == "/" {
+                            is_comment = true
+                        }
+                    }
+                }
+                if is_comment {
+                    var nl = find_from(src, "\n", p)
+                    if nl < 0 || nl > aend {
+                        done = true
+                    } else {
+                        p = nl + 1
+                    }
+                } else {
+                    p = p + 1
+                }
+            }
+        }
+        return out
+    }
+
     // ================= 依赖项解析 =================
     // 核心扫描：遍历 dependencies 数组区域的每一行 `"包名": "spec",`，
     // 把全部包名（want_name=true）或全部 spec（want_name=false）拼成

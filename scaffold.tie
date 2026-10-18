@@ -338,6 +338,7 @@ func sc_config(name: string, kind: string, main_rel: string) -> string {
     sb_append(sb, "    \"kind\": \"" + kind + "\",\n")
     sb_append(sb, "    \"main\": \"" + main_rel + "\",\n")
     sb_append(sb, "    \"author\": \"\",\n")
+    sb_append(sb, "    \"contributors\": [],\n")
     sb_append(sb, "    \"license\": \"TPL-2.3\",\n")
     sb_append(sb, "    \"dependencies\": [\n")
     sb_append(sb, "    ],\n")
